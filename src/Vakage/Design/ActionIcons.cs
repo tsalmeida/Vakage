@@ -17,15 +17,19 @@ public static class ActionIcons
         new("avares://Vakage/Assets/Fonts#Font Awesome 6 Free Solid");
 
     public const string ArrowDownWideShort = "f160";
+    public const string Ban = "f05e";
     public const string BoxArchive = "f187";
     public const string Check = "f00c";
     public const string Comments = "f086";
+    public const string Compress = "f066";
+    public const string Eraser = "f12d";
     public const string FileImport = "f56f";
     public const string FolderOpen = "f07c";
     public const string Link = "f0c1";
     public const string LinkSlash = "f127";
     public const string Paperclip = "f0c6";
     public const string Rotate = "f2f1";
+    public const string Star = "f005";
     public const string TrashCan = "f2ed";
     public const string UserPlus = "f234";
     public const string Xmark = "f00d";

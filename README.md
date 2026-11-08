@@ -13,12 +13,16 @@ Stone icon (`#57534d`, Tailwind stone-600). A Tekhnexos companion app, C# and Av
 - **Join** chats into one conversation: a contact's old number and new number, read as one continuous stream as it never was in WhatsApp. Unjoin parts them again. Chats of different accounts are never joined.
 - **Files**: every file in an account, largest first, filtered by who sent it (or by everyone but that person).
 - **One copy of each file.** Files are stored by their content, so the same photo sent to three people, or forwarded back to you, or exported from both your phone and your partner's, is stored once and every chat points at it.
-- **Delete** conversations; a file goes with them only when no other chat still uses it.
+- **Delete** conversations; a file goes with them only when no other chat still uses it, and never when it is marked important.
+- **Important or irrelevant.** Every file stands on one of three lists: important (the precious things, kept whole), irrelevant (the noise), or unsorted. Vakage suggests a standing, with its reason: stickers, GIFs, forwarded pictures and anything sent around several chats look irrelevant; your own photos, and the photos and voice notes of close one-to-one chats, look important; screenshots are left for you. Your own mark always wins, and the Files tab shows each list, with a preview of every picture.
+- **Reduce the noise.** An irrelevant picture that is mostly words is kept as its words; any other is kept as a small thumbnail; an irrelevant PDF is kept as its text; the original is deleted, and where it was in the chat a notice says so. Reading text needs Eidokanon (a Tekhnexos companion) on the computer; without it, pictures keep a thumbnail and PDFs stay whole.
+- **Made to be continued.** A later backup of the same phone joins on as if the archive had never been cut off: messages are matched by WhatsApp's own ids, times are kept in UTC, and a contact renamed, a chat moved to WhatsApp's new ids, or a computer in another time zone adds nothing twice. Each import also keeps the phone's own databases, untouched, beside the archive.
 
 ## Coming
 
 - The other side of the same conversation: your partner's export of a chat with you, read beside yours.
 - Making files smaller: lossless image conversion (PNG to WebP), shrinking oversized PDFs.
+- Text reading without Eidokanon (Tesseract and pdftotext directly), so the open-source build reduces files on its own.
 - Help from an AI model in deciding which files are worth keeping and which are noise.
 - Other messaging apps, starting with iPhone Messages.
 
@@ -45,9 +49,13 @@ The library is a folder (by default `Documents\Vakage`; set `LibraryPath` in `%L
 
 ```text
 Vakage\
-  vakage.sqlite            accounts, chats, messages
-  files\ab\<sha256>.jpg    each file once, named by its content
+  vakage.sqlite                         accounts, chats, messages, files and their standing (one file, no journal beside it)
+  files\ab\<sha256>.jpg                 each file once, named by its content
+  thumbs\ab\<sha256>.jpg                the thumbnail kept for a reduced file
+  sources\whatsapp-ios\<account>\<date>  the phone's own WhatsApp databases, as each import read them
 ```
+
+Files are never rewritten once stored, so the folder syncs and backs up well.
 
 ## Command line
 
@@ -56,7 +64,10 @@ Vakage --import "WhatsApp Chat - Ana.zip" --account Tiago [--title "Ana"] [--me 
 Vakage --import-ios <WhatsApp shared container> --account Tiago [--chat <name or number>,…]
 Vakage --join 4,2,1 --title "Ana"                 # chat ids, as --list shows them
 Vakage --list [--account Tiago]
-Vakage --files --account Tiago [--sender Ana] [--top 50]
+Vakage --files --account Tiago [--list important|irrelevant|unsorted] [--sender Ana] [--top 50]
+Vakage --suggest                                   # work out the suggested standings again
+Vakage --mark important|irrelevant|none --file 12,13
+Vakage --reduce --account Tiago [--file 12,13] --yes   # keep text or a thumbnail, DELETE the originals
 ```
 
 Every command takes `--library <folder>` to work on another library.

@@ -5,8 +5,11 @@ namespace Vakage.Core.Sources.WhatsApp;
 
 /// <summary>One chat in an iPhone's WhatsApp database.</summary>
 /// <param name="Jid">WhatsApp's id for the contact or group (<c>5561…@s.whatsapp.net</c>, <c>…@g.us</c>).</param>
-public sealed record IosChat(long Pk, string Jid, string Name, bool IsGroup, int MessageCount, DateTime? Last)
+/// <param name="Kind">person, group or channel.</param>
+public sealed record IosChat(long Pk, string Jid, string Name, string Kind, int MessageCount, DateTime? Last)
 {
+    public bool IsGroup => Kind == "group";
+
     /// <summary>The phone number in the id, for telling apart contacts saved under one name.</summary>
     public string Number => Jid.Split('@')[0];
 }
@@ -60,7 +63,10 @@ public sealed class WhatsAppIosDatabase
         return conn;
     }
 
-    /// <summary>Every person and group chat with at least one message; status updates are left out.</summary>
+    /// <summary>
+    /// Every chat with at least one message: people, groups (communities
+    /// included) and the channels followed. Status updates are left out.
+    /// </summary>
     public IReadOnlyList<IosChat> Chats()
     {
         using var conn = Connect();
@@ -69,7 +75,7 @@ public sealed class WhatsAppIosDatabase
             SELECT s.Z_PK, s.ZCONTACTJID, ifnull(s.ZPARTNERNAME, s.ZCONTACTJID), s.ZSESSIONTYPE,
                    (SELECT count(*) FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK), s.ZLASTMESSAGEDATE
             FROM ZWACHATSESSION s
-            WHERE s.ZSESSIONTYPE IN (0, 1) AND s.ZCONTACTJID IS NOT NULL
+            WHERE s.ZSESSIONTYPE IN (0, 1, 4, 5) AND s.ZCONTACTJID IS NOT NULL
             """;
         using var r = cmd.ExecuteReader();
         var list = new List<IosChat>();
@@ -77,7 +83,8 @@ public sealed class WhatsAppIosDatabase
         {
             var count = r.GetInt32(4);
             if (count == 0) continue;
-            list.Add(new IosChat(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt32(3) == 1, count,
+            var kind = r.GetInt32(3) switch { 1 or 4 => "group", 5 => "channel", _ => "person" };
+            list.Add(new IosChat(r.GetInt64(0), r.GetString(1), r.GetString(2), kind, count,
                 r.IsDBNull(5) ? null : ToLocal(r.GetDouble(5))));
         }
         return list.OrderByDescending(c => c.Last ?? DateTime.MinValue).ToList();
@@ -95,7 +102,8 @@ public sealed class WhatsAppIosDatabase
         cmd.CommandText = """
             SELECT m.ZMESSAGEDATE, m.ZISFROMME, m.ZMESSAGETYPE, m.ZTEXT, m.ZFROMJID, m.ZPUSHNAME,
                    gm.ZCONTACTNAME, gm.ZFIRSTNAME, gm.ZMEMBERJID,
-                   mi.ZMEDIALOCALPATH, mi.ZTITLE, mi.ZLATITUDE, mi.ZLONGITUDE
+                   mi.ZMEDIALOCALPATH, mi.ZTITLE, mi.ZLATITUDE, mi.ZLONGITUDE,
+                   m.ZSTANZAID, m.ZFLAGS
             FROM ZWAMESSAGE m
             LEFT JOIN ZWAGROUPMEMBER gm ON gm.Z_PK = m.ZGROUPMEMBER
             LEFT JOIN ZWAMEDIAITEM mi ON mi.Z_PK = m.ZMEDIAITEM
@@ -107,7 +115,8 @@ public sealed class WhatsAppIosDatabase
         var list = new List<ParsedMessage>();
         while (r.Read())
         {
-            var sentAt = ToLocal(r.GetDouble(0));
+            var utc = CoreDataEpoch.AddSeconds(Math.Floor(r.GetDouble(0)));
+            var sentAt = DateTime.SpecifyKind(utc.ToLocalTime(), DateTimeKind.Unspecified);
             var fromMe = !r.IsDBNull(1) && r.GetInt64(1) == 1;
             var type = r.IsDBNull(2) ? 0 : r.GetInt32(2);
             var text = r.IsDBNull(3) ? "" : r.GetString(3).Replace("‎", "");
@@ -118,11 +127,39 @@ public sealed class WhatsAppIosDatabase
                     : chat.Name;
             var mediaPath = Str(r, 9);
             var title = Str(r, 10);
-            list.Add(Map(sentAt, sender, type, text, mediaPath, title,
-                r.IsDBNull(11) ? 0 : r.GetDouble(11), r.IsDBNull(12) ? 0 : r.GetDouble(12)));
+            var message = Map(sentAt, sender, type, text, mediaPath, title,
+                r.IsDBNull(11) ? 0 : r.GetDouble(11), r.IsDBNull(12) ? 0 : r.GetDouble(12));
+
+            // What makes a later backup join on seamlessly: WhatsApp's own id
+            // for the message, the exact UTC time, and who sent it by id.
+            var stanza = Str(r, 13);
+            var flags = r.IsDBNull(14) ? 0L : r.GetInt64(14);
+            var senderKey = fromMe ? "me" : chat.IsGroup ? Str(r, 8) ?? Str(r, 4) : chat.Jid;
+            list.Add(message with
+            {
+                SourceId = stanza is null ? null : $"{stanza}|{(fromMe ? 1 : 0)}",
+                SentUtc = DateTime.SpecifyKind(utc, DateTimeKind.Unspecified),
+                SenderKey = message.Kind == MessageKind.System ? null : senderKey,
+                Forwarded = (flags & ForwardedFlag) != 0,
+                MediaType = message.AttachmentName is null && message.Kind != MessageKind.MediaOmitted ? null : MediaTypeOf(type, mediaPath),
+            });
         }
         return list;
     }
+
+    /// <summary>Set on nearly every copy of an image passed from chat to chat: the forwarded mark.</summary>
+    private const long ForwardedFlag = 0x100;
+
+    private static string MediaTypeOf(int type, string? mediaPath) => type switch
+    {
+        1 or 28 or 38 => "image",
+        2 => "video",
+        3 => "audio",
+        11 => "gif",
+        15 => "sticker",
+        8 => "document",
+        _ => mediaPath is null ? "document" : MediaTypes.FromName(mediaPath),
+    };
 
     private static ParsedMessage Map(DateTime sentAt, string sender, int type, string text, string? mediaPath, string? title, double lat, double lon)
     {

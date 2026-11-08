@@ -182,6 +182,9 @@ public partial class MainWindow : Window
                 lines.Add($"{Path.GetFileName(path)} was not imported: {ex.Message}");
             }
         }
+        Status("Working out which files look important and which irrelevant…");
+        var suggested = await Task.Run(() => _library.Suggest());
+        lines.Add($"Suggestions: {suggested.Important:N0} important, {suggested.Irrelevant:N0} irrelevant.");
         ImportFileButton.IsEnabled = ImportFolderButton.IsEnabled = true;
         ReloadSelf();
         ReloadConversations();
@@ -342,6 +345,20 @@ public partial class MainWindow : Window
         if (!_loading) ShowFiles();
     }
 
+    private FileList _fileList = Core.Library.FileList.All;
+
+    private void OnFileListClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } || !Enum.TryParse<FileList>(tag, out var list)) return;
+        _fileList = list;
+        ImportantTab.Classes.Set("active", list == Core.Library.FileList.Important);
+        IrrelevantTab.Classes.Set("active", list == Core.Library.FileList.Irrelevant);
+        UnsortedTab.Classes.Set("active", list == Core.Library.FileList.Unsorted);
+        AllFilesTab.Classes.Set("active", list == Core.Library.FileList.All);
+        ReduceButton.IsVisible = list == Core.Library.FileList.Irrelevant;
+        ShowFiles();
+    }
+
     private void ShowFiles()
     {
         if (_account is null)
@@ -353,24 +370,76 @@ public partial class MainWindow : Window
         var who = SenderBox.SelectedItem as string;
         var person = who is null or "Anyone" ? null : who;
         var exclude = SenderModeBox.SelectedIndex == 1;
-        var files = _library.Files(_account.Id, person, exclude);
+        var files = _library.Files(_account.Id, person, exclude, _fileList);
         FileList.ItemsSource = files;
-        FilesCaption.Text = $"{files.Count:N0} files, {Format.Bytes(files.Sum(f => f.Size))}, in {_account.Name}'s archive, largest first. " +
-                            "A file sent in several chats is stored, and listed, once.";
-        OpenFileButton.IsEnabled = false;
+        var whole = files.Where(f => f.Reduced is null).ToList();
+        var list = _fileList switch
+        {
+            Core.Library.FileList.Important => "important ",
+            Core.Library.FileList.Irrelevant => "irrelevant ",
+            Core.Library.FileList.Unsorted => "unsorted ",
+            _ => "",
+        };
+        FilesCaption.Text = $"{files.Count:N0} {list}files in {_account.Name}'s archive, {Format.Bytes(whole.Sum(f => f.Size))} kept whole" +
+                            (files.Count > whole.Count ? $", {files.Count - whole.Count:N0} already reduced" : "") +
+                            ". A question mark is Vakage's suggestion; your mark always wins. Ctrl+click or Shift+click to select several.";
+        OnFileSelectionChanged(null, null!);
     }
 
+    private List<StoredFile> SelectedFiles() => FileList.SelectedItems?.OfType<StoredFile>().ToList() ?? [];
+
     private void OnFileSelectionChanged(object? sender, SelectionChangedEventArgs e)
-        => OpenFileButton.IsEnabled = FileList.SelectedItem is StoredFile;
+    {
+        var selected = SelectedFiles();
+        MarkImportantButton.IsEnabled = MarkIrrelevantButton.IsEnabled = ClearMarkButton.IsEnabled = selected.Count > 0;
+        OpenFileButton.IsEnabled = selected.Count == 1 && selected[0].Reduced is null;
+    }
+
+    private void OnMarkClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        var selected = SelectedFiles();
+        if (selected.Count == 0) return;
+        var mark = tag.Length == 0 ? null : tag;
+        _library.Mark(selected.Select(f => f.Id).ToList(), mark);
+        ShowFiles();
+        Status(mark is null
+            ? $"Your mark is off {selected.Count:N0} file(s); they follow Vakage's suggestion again."
+            : $"{selected.Count:N0} file(s) marked {mark}.");
+    }
+
+    private async void OnReduceClick(object? sender, RoutedEventArgs e)
+    {
+        if (_account is null) return;
+        var selected = SelectedFiles().Where(f => f.Reduced is null).ToList();
+        var targets = selected.Count > 0 ? selected : (FileList.ItemsSource as IEnumerable<StoredFile>)?.Where(f => f.Reduced is null).ToList() ?? [];
+        if (targets.Count == 0) return;
+        var reader = new EidokanonTextReader();
+        var ok = await Dialogs.Confirm(this, "Reduce irrelevant files",
+            $"Let {targets.Count:N0} irrelevant file(s) go ({Format.Bytes(targets.Sum(f => f.Size))})? " +
+            "Of each one Vakage keeps the text, when it is a picture of words or a PDF, or a small thumbnail; the original is deleted from the archive, " +
+            "and where it was in the chat a notice says so. Files marked important are never touched. This cannot be undone." +
+            (reader.Unavailable is { } why ? $" ({why} Pictures will keep a thumbnail.)" : ""),
+            "Reduce");
+        if (!ok) return;
+        ReduceButton.IsEnabled = false;
+        var ids = targets.Select(f => f.Id).ToList();
+        var account = _account;
+        var result = await Task.Run(() => _library.Reduce(account.Id, ids, reader, line => Status($"Reducing {line}")));
+        ReduceButton.IsEnabled = true;
+        ShowFiles();
+        Status($"Reduced: {result.ToText:N0} kept as text, {result.ToThumbnail:N0} as thumbnails, {result.Removed:N0} removed with a notice, " +
+               $"{result.Kept:N0} kept whole; {Format.Bytes(result.BytesFreed)} freed." + (result.Notes.Count > 0 ? "  " + result.Notes[0] : ""));
+    }
 
     private void OnOpenFileClick(object? sender, RoutedEventArgs e)
     {
-        if (FileList.SelectedItem is StoredFile f) OpenPath(f.Path);
+        if (SelectedFiles() is [{ Reduced: null } f]) OpenPath(f.Path);
     }
 
     private void OnFileDoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (FileList.SelectedItem is StoredFile f) OpenPath(f.Path);
+        if (FileList.SelectedItem is StoredFile { Reduced: null } f) OpenPath(f.Path);
     }
 
     // ----- Tabs and folders -----
@@ -472,7 +541,7 @@ public partial class MainWindow : Window
 
         var meta = new TextBlock
         {
-            Text = $"{m.Sender} · {m.SentAt:HH:mm}" +
+            Text = $"{m.Sender} · {m.SentAt:HH:mm}" + (m.Forwarded ? " · forwarded" : "") +
                    (_chatTitles is not null && _chatTitles.TryGetValue(m.ChatId, out var from) ? $" · {from}" : ""),
             TextWrapping = TextWrapping.Wrap,
         };
@@ -481,9 +550,13 @@ public partial class MainWindow : Window
 
         if (m.Kind == MessageKind.MediaOmitted)
         {
-            var omitted = new TextBlock { Text = "A file the export left out.", FontStyle = FontStyle.Italic };
+            var omitted = new TextBlock { Text = "A file that never reached this archive (not downloaded, or left out of the export).", FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap };
             omitted.Classes.Add("caption");
             content.Children.Add(omitted);
+        }
+        else if (m.Reduced is { } reduced && m.AttachmentName is { } let)
+        {
+            content.Children.Add(ReducedNotice(let, reduced, m.ThumbPath, m.FileText));
         }
         else if (m.AttachmentName is { } attachment)
         {
@@ -510,6 +583,43 @@ public partial class MainWindow : Window
         bubble[!Border.BackgroundProperty] = bubble.GetResourceObservable(mine ? "TkxUserBubble" : "TkxAssistantBubble").ToBinding();
         bubble[!Border.BorderBrushProperty] = bubble.GetResourceObservable(mine ? "TkxUserBubbleBorder" : "TkxAssistantBubbleBorder").ToBinding();
         return bubble;
+    }
+
+    /// <summary>Where an irrelevant file was let go: the notice, and the thumbnail or the words kept.</summary>
+    private static Control ReducedNotice(string name, string reduced, string? thumb, string? text)
+    {
+        var panel = new StackPanel { Spacing = 4 };
+        var notice = new TextBlock
+        {
+            Text = reduced switch
+            {
+                "text" => $"The original {name} was deleted as irrelevant; the text it contained is kept:",
+                "thumbnail" => $"The original {name} was deleted as irrelevant; this thumbnail is kept.",
+                _ => $"The original {name} was deleted as irrelevant.",
+            },
+            FontStyle = FontStyle.Italic,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        notice.Classes.Add("caption");
+        panel.Children.Add(notice);
+        if (thumb is not null && File.Exists(thumb))
+        {
+            try
+            {
+                panel.Children.Add(new Image { Source = new Bitmap(thumb), MaxWidth = 240, MaxHeight = 240, HorizontalAlignment = HorizontalAlignment.Left });
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"Could not show {thumb}", ex);
+            }
+        }
+        if (reduced == "text" && !string.IsNullOrWhiteSpace(text))
+        {
+            var words = new SelectableTextBlock { Text = text, TextWrapping = TextWrapping.Wrap };
+            words.Classes.Add("prose");
+            panel.Children.Add(words);
+        }
+        return panel;
     }
 
     private Control Attachment(string name, string? path, long? size)
@@ -560,19 +670,68 @@ public partial class MainWindow : Window
 
     private static Control FileRow(StoredFile f)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("110,*,240,280,110"), Margin = new Thickness(8, 4) };
-        void Cell(int col, string text, bool mono = false)
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("64,96,*,260,180,220,96"), Margin = new Thickness(8, 4) };
+        void Cell(int col, string text, bool mono = false, IBrush? hue = null)
         {
-            var t = new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 12, 0) };
+            var t = new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
             if (mono) t.Classes.Add("mono");
+            if (hue is not null) t.Foreground = hue;
+            ToolTip.SetTip(t, text);
             Grid.SetColumn(t, col);
             grid.Children.Add(t);
         }
-        Cell(0, Format.Bytes(f.Size));
-        Cell(1, f.References > 1 ? $"{f.Name}  (×{f.References})" : f.Name, mono: true);
-        Cell(2, f.Senders);
-        Cell(3, f.Chats);
-        Cell(4, f.FirstSent.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        grid.Children.Add(Preview(f));
+        Cell(1, Format.Bytes(f.Size));
+        Cell(2, f.References > 1 ? $"{f.Name}  (×{f.References})" : f.Name, mono: true);
+        Cell(3, CommandLine.Standing(f), hue: f.Mark switch
+        {
+            ArchiveLibrary.Important => Palette.Lime.Brush600,
+            ArchiveLibrary.Irrelevant => Palette.Orange.Brush600,
+            _ => null,
+        });
+        Cell(4, f.Senders);
+        Cell(5, f.Chats);
+        Cell(6, f.FirstSent.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         return grid;
+    }
+
+    /// <summary>A small look at a picture, decoded only while its row is on screen.</summary>
+    private static Control Preview(StoredFile f)
+    {
+        var source = f.Reduced is null ? f.Path : f.ThumbPath;
+        var isPicture = source is not null && (f.Reduced is not null || f.MediaType is "image" or "sticker" or "gif");
+        if (!isPicture)
+        {
+            var icon = new TextBlock
+            {
+                Text = ActionIcons.Glyph(f.MediaType == "video" ? "f03d" : f.MediaType == "audio" ? "f028" : "f15b"),
+                FontFamily = ActionIcons.Solid,
+                Foreground = Palette.Amber.Brush500,
+                FontSize = 20,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            return icon;
+        }
+        var image = new Image { Width = 48, Height = 48, Stretch = Stretch.UniformToFill, HorizontalAlignment = HorizontalAlignment.Left };
+        image.AttachedToVisualTree += (_, _) =>
+        {
+            if (image.Source is not null || !File.Exists(source)) return;
+            try
+            {
+                using var stream = File.OpenRead(source!);
+                image.Source = Bitmap.DecodeToWidth(stream, 96);
+            }
+            catch (Exception)
+            {
+                // Not every file decodes (HEIC); the row stays without a preview.
+            }
+        };
+        image.DetachedFromVisualTree += (_, _) =>
+        {
+            (image.Source as IDisposable)?.Dispose();
+            image.Source = null;
+        };
+        return image;
     }
 }

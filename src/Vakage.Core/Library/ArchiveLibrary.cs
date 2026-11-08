@@ -8,7 +8,8 @@ namespace Vakage.Core.Library;
 public sealed record Account(long Id, string Name, string? SelfName);
 
 /// <summary>A chat as one export (or several exports of the same chat) brought it in.</summary>
-public sealed record Chat(long Id, long AccountId, string Source, string Title, long? ThreadId, int MessageCount, DateTime? First, DateTime? Last);
+/// <param name="Kind">person, group or channel; null when the source did not say (an export).</param>
+public sealed record Chat(long Id, long AccountId, string Source, string Title, long? ThreadId, int MessageCount, DateTime? First, DateTime? Last, string? Kind = null);
 
 /// <summary>
 /// What the conversation list shows: a chat on its own, or a joined thread of
@@ -19,10 +20,22 @@ public sealed record Conversation(long? ChatId, long? ThreadId, string Title, in
     public bool IsJoined => ThreadId is not null;
 }
 
-public sealed record StoredMessage(long Id, long ChatId, DateTime SentAt, string? Sender, string Body, MessageKind Kind, string? AttachmentName, long? FileId, string? FilePath, long? FileSize);
+/// <param name="SentAt">The time to show: the exact UTC time in this computer's zone when the source knew it, else the wall clock the export gave.</param>
+/// <param name="Reduced">How an irrelevant file was let go: thumbnail, text or removed; null while the original is kept.</param>
+public sealed record StoredMessage(long Id, long ChatId, DateTime SentAt, string? Sender, string Body, MessageKind Kind, string? AttachmentName,
+    long? FileId, string? FilePath, long? FileSize, bool Forwarded = false, string? Reduced = null, string? ThumbPath = null, string? FileText = null);
 
 /// <summary>One stored file, with who sent it and where. A file sent many times is one row.</summary>
-public sealed record StoredFile(long Id, string Sha256, long Size, string Name, string Path, string Senders, string Chats, DateTime FirstSent, int References);
+/// <param name="Mark">important or irrelevant, as the person decided; null when undecided.</param>
+/// <param name="Suggestion">important or irrelevant, as Vakage guessed, with <paramref name="Reason"/>.</param>
+/// <param name="Reduced">thumbnail, text or removed once the original is gone; null while it is kept.</param>
+public sealed record StoredFile(long Id, string Sha256, long Size, string Name, string Path, string Senders, string Chats, DateTime FirstSent, int References,
+    string MediaType = "document", string? Mark = null, string? Suggestion = null, string? Reason = null, string? Reduced = null,
+    string? ThumbPath = null, string? Text = null)
+{
+    /// <summary>The list the file is on: the person's mark, else Vakage's suggestion.</summary>
+    public string? Standing => Mark ?? Suggestion;
+}
 
 public sealed record ImportResult(long ChatId, string Title, bool NewChat, int MessagesAdded, int MessagesAlreadyThere, int FilesStored, int FilesAlreadyStored, int FilesMissing);
 
@@ -34,7 +47,7 @@ public sealed record ImportResult(long ChatId, string Title, bool NewChat, int M
 /// exports bring it in. Accounts never mix: every chat belongs to exactly one,
 /// and a joined thread only joins chats of one account.
 /// </summary>
-public sealed class ArchiveLibrary
+public sealed partial class ArchiveLibrary
 {
     public const string DatabaseName = "vakage.sqlite";
 
@@ -68,7 +81,7 @@ public sealed class ArchiveLibrary
     {
         using var conn = Connect();
         Exec(conn, """
-            PRAGMA journal_mode = WAL;
+            PRAGMA journal_mode = DELETE;
             CREATE TABLE IF NOT EXISTS accounts (
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL UNIQUE,
@@ -119,9 +132,23 @@ public sealed class ArchiveLibrary
             """);
         // A chat read from a phone's own database is known by its WhatsApp id
         // (the contact's JID), so two contacts saved under one name stay apart.
-        var chatColumns = Query(conn, "SELECT name FROM pragma_table_info('chats')", r => r.GetString(0));
-        if (!chatColumns.Contains("source_key"))
-            Exec(conn, "ALTER TABLE chats ADD COLUMN source_key TEXT");
+        // The library lives in a synced folder, so it is one file: a rollback
+        // journal, never WAL's side files. Columns added since 0.1 come in here.
+        AddColumns(conn, "chats", ("source_key", "TEXT"), ("kind", "TEXT"));
+        AddColumns(conn, "messages", ("source_id", "TEXT"), ("sent_utc", "TEXT"), ("sender_key", "TEXT"),
+            ("forwarded", "INTEGER NOT NULL DEFAULT 0"), ("media_type", "TEXT"));
+        AddColumns(conn, "files", ("mark", "TEXT"), ("suggestion", "TEXT"), ("suggestion_reason", "TEXT"),
+            ("reduced", "TEXT"), ("thumb", "TEXT"), ("text", "TEXT"), ("reduced_at", "TEXT"),
+            ("width", "INTEGER"), ("height", "INTEGER"));
+        Exec(conn, "CREATE INDEX IF NOT EXISTS messages_source ON messages(chat_id, source_id)");
+    }
+
+    private static void AddColumns(SqliteConnection conn, string table, params (string Name, string Type)[] columns)
+    {
+        var have = Query(conn, $"SELECT name FROM pragma_table_info('{table}')", r => r.GetString(0));
+        foreach (var (name, type) in columns)
+            if (!have.Contains(name))
+                Exec(conn, $"ALTER TABLE {table} ADD COLUMN {name} {type}");
     }
 
     // ----- Accounts -----
@@ -207,7 +234,8 @@ public sealed class ArchiveLibrary
     /// copied into the store.
     /// </summary>
     public ImportResult ImportMessages(long accountId, string source, string? sourceKey, string title,
-        IReadOnlyList<ParsedMessage> messages, Func<string, Stream?> openFile, string sourcePath)
+        IReadOnlyList<ParsedMessage> messages, Func<string, Stream?> openFile, string sourcePath, string? chatKind = null,
+        IReadOnlySet<string>? liveKeys = null)
     {
         using var conn = Connect();
         using var tx = conn.BeginTransaction();
@@ -217,11 +245,26 @@ public sealed class ArchiveLibrary
                 r => r.GetInt64(0), ("$a", accountId), ("$s", source), ("$k", sourceKey))
             : Query(conn, "SELECT id FROM chats WHERE account_id = $a AND source = $s AND title = $t AND source_key IS NULL",
                 r => r.GetInt64(0), ("$a", accountId), ("$s", source), ("$t", title));
+        if (chatIds.Count == 0 && sourceKey is not null
+            && FindRekeyedChat(conn, accountId, source, messages, liveKeys) is { } rekeyed)
+        {
+            chatIds = [rekeyed];
+            Exec(conn, "UPDATE chats SET source_key = $k WHERE id = $c", ("$k", sourceKey), ("$c", rekeyed));
+        }
         var newChat = chatIds.Count == 0;
         var chatId = newChat
-            ? Scalar(conn, "INSERT INTO chats (account_id, source, source_key, title, created_at) VALUES ($a, $s, $k, $t, $n) RETURNING id",
-                ("$a", accountId), ("$s", source), ("$k", (object?)sourceKey ?? DBNull.Value), ("$t", title), ("$n", Now()))
+            ? Scalar(conn, "INSERT INTO chats (account_id, source, source_key, title, kind, created_at) VALUES ($a, $s, $k, $t, $d, $n) RETURNING id",
+                ("$a", accountId), ("$s", source), ("$k", (object?)sourceKey ?? DBNull.Value), ("$t", title), ("$d", (object?)chatKind ?? DBNull.Value), ("$n", Now()))
             : chatIds[0];
+        if (!newChat && sourceKey is not null)
+            // The contact's or group's current name, as the phone has it now.
+            Exec(conn, "UPDATE chats SET title = $t, kind = ifnull($d, kind) WHERE id = $c", ("$t", title), ("$d", (object?)chatKind ?? DBNull.Value), ("$c", chatId));
+
+        // Messages the chat holds already, by the source's own id.
+        var knownIds = newChat
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : Query(conn, "SELECT source_id FROM messages WHERE chat_id = $c AND source_id IS NOT NULL", r => r.GetString(0), ("$c", chatId))
+                .ToHashSet(StringComparer.Ordinal);
 
         // What the chat already holds, counted: a message repeated in the same
         // minute ("ok", "ok") is two messages, and a later export repeats both.
@@ -239,12 +282,23 @@ public sealed class ArchiveLibrary
         {
             var sentAt = Stamp(m.SentAt);
             var kind = KindName(m.Kind);
-            var key = Key(sentAt, m.Sender ?? "", m.Body, m.AttachmentName ?? "", kind);
-            if (already.TryGetValue(key, out var count) && count > 0)
+            if (m.SourceId is not null)
             {
-                already[key] = count - 1;
-                skipped++;
-                continue;
+                if (!knownIds.Add(m.SourceId))
+                {
+                    skipped++;
+                    continue;
+                }
+            }
+            else
+            {
+                var key = Key(sentAt, m.Sender ?? "", m.Body, m.AttachmentName ?? "", kind);
+                if (already.TryGetValue(key, out var count) && count > 0)
+                {
+                    already[key] = count - 1;
+                    skipped++;
+                    continue;
+                }
             }
 
             long? fileId = null;
@@ -264,11 +318,14 @@ public sealed class ArchiveLibrary
             }
 
             Exec(conn, """
-                INSERT INTO messages (chat_id, seq, sent_at, sender, body, kind, attachment_name, file_id)
-                VALUES ($c, $q, $t, $s, $b, $k, $an, $f)
+                INSERT INTO messages (chat_id, seq, sent_at, sender, body, kind, attachment_name, file_id,
+                                      source_id, sent_utc, sender_key, forwarded, media_type)
+                VALUES ($c, $q, $t, $s, $b, $k, $an, $f, $sid, $utc, $sk, $fw, $mt)
                 """,
                 ("$c", chatId), ("$q", ++seq), ("$t", sentAt), ("$s", (object?)m.Sender ?? DBNull.Value), ("$b", m.Body),
-                ("$k", kind), ("$an", (object?)m.AttachmentName ?? DBNull.Value), ("$f", (object?)fileId ?? DBNull.Value));
+                ("$k", kind), ("$an", (object?)m.AttachmentName ?? DBNull.Value), ("$f", (object?)fileId ?? DBNull.Value),
+                ("$sid", (object?)m.SourceId ?? DBNull.Value), ("$utc", m.SentUtc is { } u ? Stamp(u) : DBNull.Value),
+                ("$sk", (object?)m.SenderKey ?? DBNull.Value), ("$fw", m.Forwarded ? 1 : 0), ("$mt", (object?)m.MediaType ?? DBNull.Value));
             added++;
         }
 
@@ -295,6 +352,7 @@ public sealed class ArchiveLibrary
         if (account.SelfName is null) SetSelfName(accountId, self);
 
         var chats = db.Chats();
+        var liveKeys = chats.Select(c => "ios:" + c.Jid).ToHashSet(StringComparer.Ordinal);
         var sharedNames = chats.GroupBy(c => c.Name).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         var picked = chatFilter is { Count: > 0 }
             ? chats.Where(c => chatFilter.Any(f => c.Name.Contains(f, StringComparison.OrdinalIgnoreCase) || c.Number.Contains(f.TrimStart('+'), StringComparison.Ordinal))).ToList()
@@ -303,12 +361,69 @@ public sealed class ArchiveLibrary
         var results = new List<ImportResult>();
         foreach (var chat in picked)
         {
-            var title = sharedNames.Contains(chat.Name) && !chat.IsGroup ? $"{chat.Name} (+{chat.Number})" : chat.Name;
+            var title = sharedNames.Contains(chat.Name) && chat.Kind == "person" ? $"{chat.Name} (+{chat.Number})" : chat.Name;
             progress?.Invoke($"{title}: {chat.MessageCount:N0} messages");
             results.Add(ImportMessages(accountId, "whatsapp", "ios:" + chat.Jid, title,
-                db.ReadMessages(chat, self), db.OpenFile, db.Root));
+                db.ReadMessages(chat, self), db.OpenFile, db.Root, chat.Kind, liveKeys));
         }
+        SnapshotSource(account, db.Root);
         return results;
+    }
+
+    /// <summary>
+    /// Keeps the phone's own databases as they were read (ChatStorage.sqlite and
+    /// the other small .sqlite files beside it, not the media, which the store
+    /// holds), under <c>sources\whatsapp-ios\[account]\[date]</c>: what Vakage
+    /// read, kept whole, should a later version want more from it.
+    /// </summary>
+    private void SnapshotSource(Account account, string container)
+    {
+        var date = File.GetLastWriteTime(Path.Combine(container, "ChatStorage.sqlite")).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var target = Path.Combine(Root, "sources", "whatsapp-ios", SafeFolderName(account.Name), date);
+        if (Directory.Exists(target)) return;
+        var staging = target + ".incoming";
+        Directory.CreateDirectory(staging);
+        foreach (var file in Directory.GetFiles(container, "*.sqlite"))
+            File.Copy(file, Path.Combine(staging, Path.GetFileName(file)), overwrite: true);
+        Directory.Move(staging, target);
+    }
+
+    private static string SafeFolderName(string name)
+    {
+        var bad = Path.GetInvalidFileNameChars();
+        var clean = new string(name.Select(c => bad.Contains(c) ? '-' : c).ToArray()).Trim();
+        return clean.Length == 0 ? "account" : clean;
+    }
+
+    /// <summary>
+    /// WhatsApp re-keys chats now and then (phone numbers moving to @lid ids).
+    /// A chat already in the archive is the same chat under a new id only when
+    /// its old id is gone from the phone and nearly every message sampled from
+    /// the new one is already in it. Message ids alone are not enough: a
+    /// broadcast carries the same id into every chat it reaches.
+    /// </summary>
+    private static long? FindRekeyedChat(SqliteConnection conn, long accountId, string source,
+        IReadOnlyList<ParsedMessage> messages, IReadOnlySet<string>? liveKeys)
+    {
+        var sample = messages.Where(m => m.SourceId is not null).Select(m => m.SourceId!).Distinct().Take(50).ToList();
+        if (sample.Count == 0) return null;
+        var hits = new Dictionary<long, int>();
+        foreach (var id in sample)
+        {
+            foreach (var chat in Query(conn, """
+                         SELECT DISTINCT m.chat_id FROM messages m JOIN chats c ON c.id = m.chat_id
+                         WHERE c.account_id = $a AND c.source = $s AND m.source_id = $i
+                         """, r => r.GetInt64(0), ("$a", accountId), ("$s", source), ("$i", id)))
+                hits[chat] = hits.GetValueOrDefault(chat) + 1;
+        }
+        foreach (var (chat, count) in hits.OrderByDescending(h => h.Value))
+        {
+            if (count < Math.Ceiling(sample.Count * 0.8)) return null;
+            var key = Query(conn, "SELECT source_key FROM chats WHERE id = $c", r => r.IsDBNull(0) ? null : r.GetString(0), ("$c", chat)).FirstOrDefault();
+            if (key is not null && liveKeys is not null && liveKeys.Contains(key)) continue; // that chat is still on the phone
+            return chat;
+        }
+        return null;
     }
 
     /// <summary>Hashes a file into the store; the same content already there is reused.</summary>
@@ -334,8 +449,22 @@ public sealed class ArchiveLibrary
                 size = output.Length;
             }
 
-            var existing = Query(conn, "SELECT id FROM files WHERE sha256 = $h", r => r.GetInt64(0), ("$h", sha));
-            if (existing.Count > 0) return (existing[0], false);
+            var existing = Query(conn, "SELECT id, ext, reduced, ifnull(mark, '') FROM files WHERE sha256 = $h",
+                r => (Id: r.GetInt64(0), Ext: r.GetString(1), Reduced: r.IsDBNull(2) ? null : r.GetString(2), Mark: r.GetString(3)), ("$h", sha));
+            if (existing.Count > 0)
+            {
+                // A file let go as irrelevant and later marked important comes
+                // back whole when an import brings the original again.
+                var e = existing[0];
+                if (e.Reduced is not null && e.Mark == Important)
+                {
+                    var back = StorePath(sha, e.Ext);
+                    Directory.CreateDirectory(Path.GetDirectoryName(back)!);
+                    if (!File.Exists(back)) File.Move(temp, back);
+                    Exec(conn, "UPDATE files SET reduced = NULL, reduced_at = NULL WHERE id = $f", ("$f", e.Id));
+                }
+                return (e.Id, false);
+            }
 
             var ext = SafeExtension(storedAs) ?? SafeExtension(name) ?? "";
             var target = StorePath(sha, ext);
@@ -372,12 +501,14 @@ public sealed class ArchiveLibrary
     {
         using var conn = Connect();
         return Query(conn, """
-            SELECT c.id, c.account_id, c.source, c.title, c.thread_id, count(m.id), min(m.sent_at), max(m.sent_at)
+            SELECT c.id, c.account_id, c.source, c.title, c.thread_id, count(m.id),
+                   min(coalesce(m.sent_utc, m.sent_at)), max(coalesce(m.sent_utc, m.sent_at)), c.kind
             FROM chats c LEFT JOIN messages m ON m.chat_id = c.id
-            WHERE c.account_id = $a GROUP BY c.id ORDER BY max(m.sent_at) DESC
+            WHERE c.account_id = $a GROUP BY c.id ORDER BY max(coalesce(m.sent_utc, m.sent_at)) DESC
             """,
             r => new Chat(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetInt64(4),
-                r.GetInt32(5), r.IsDBNull(6) ? null : Parse(r.GetString(6)), r.IsDBNull(7) ? null : Parse(r.GetString(7))),
+                r.GetInt32(5), r.IsDBNull(6) ? null : Parse(r.GetString(6)), r.IsDBNull(7) ? null : Parse(r.GetString(7)),
+                r.IsDBNull(8) ? null : r.GetString(8)),
             ("$a", accountId));
     }
 
@@ -409,40 +540,22 @@ public sealed class ArchiveLibrary
         using var conn = Connect();
         var ids = string.Join(",", chatIds.Select(i => i.ToString(CultureInfo.InvariantCulture)));
         return Query(conn, $"""
-            SELECT m.id, m.chat_id, m.sent_at, m.sender, m.body, m.kind, m.attachment_name, m.file_id, f.sha256, f.ext, f.size
+            SELECT m.id, m.chat_id, m.sent_at, m.sender, m.body, m.kind, m.attachment_name, m.file_id, f.sha256, f.ext, f.size,
+                   m.sent_utc, m.forwarded, f.reduced, f.thumb, f.text
             FROM messages m LEFT JOIN files f ON f.id = m.file_id
-            WHERE m.chat_id IN ({ids}) ORDER BY m.sent_at, m.chat_id, m.seq
+            WHERE m.chat_id IN ({ids}) ORDER BY coalesce(m.sent_utc, m.sent_at), m.chat_id, m.seq
             """,
-            r => new StoredMessage(r.GetInt64(0), r.GetInt64(1), Parse(r.GetString(2)), r.IsDBNull(3) ? null : r.GetString(3),
+            r => new StoredMessage(r.GetInt64(0), r.GetInt64(1),
+                r.IsDBNull(11) ? Parse(r.GetString(2)) : ShownTime(r.GetString(11)),
+                r.IsDBNull(3) ? null : r.GetString(3),
                 r.GetString(4), KindFrom(r.GetString(5)), r.IsDBNull(6) ? null : r.GetString(6),
                 r.IsDBNull(7) ? null : r.GetInt64(7),
-                r.IsDBNull(8) ? null : StorePath(r.GetString(8), r.GetString(9)),
-                r.IsDBNull(10) ? null : r.GetInt64(10)));
-    }
-
-    /// <summary>
-    /// Every file stored for an account, largest first. With a sender, only the
-    /// files that person sent; <paramref name="excludeSender"/> turns that around.
-    /// </summary>
-    public IReadOnlyList<StoredFile> Files(long accountId, string? sender = null, bool excludeSender = false)
-    {
-        using var conn = Connect();
-        var filter = sender is null ? "" : excludeSender
-            ? "AND f.id NOT IN (SELECT m2.file_id FROM messages m2 JOIN chats c2 ON c2.id = m2.chat_id WHERE c2.account_id = $a AND m2.sender = $s AND m2.file_id IS NOT NULL)"
-            : "AND f.id IN (SELECT m2.file_id FROM messages m2 JOIN chats c2 ON c2.id = m2.chat_id WHERE c2.account_id = $a AND m2.sender = $s AND m2.file_id IS NOT NULL)";
-        var parameters = new List<(string, object)> { ("$a", accountId) };
-        if (sender is not null) parameters.Add(("$s", sender));
-        return Query(conn, $"""
-            SELECT f.id, f.sha256, f.size, f.name, f.ext,
-                   group_concat(DISTINCT ifnull(m.sender, '')), group_concat(DISTINCT c.title), min(m.sent_at), count(m.id)
-            FROM files f JOIN messages m ON m.file_id = f.id JOIN chats c ON c.id = m.chat_id
-            WHERE c.account_id = $a {filter}
-            GROUP BY f.id ORDER BY f.size DESC, f.id
-            """,
-            r => new StoredFile(r.GetInt64(0), r.GetString(1), r.GetInt64(2), r.GetString(3), StorePath(r.GetString(1), r.GetString(4)),
-                (r.IsDBNull(5) ? "" : r.GetString(5)).Replace(",", ", "), (r.IsDBNull(6) ? "" : r.GetString(6)).Replace(",", ", "),
-                Parse(r.GetString(7)), r.GetInt32(8)),
-            parameters.ToArray());
+                r.IsDBNull(8) || !r.IsDBNull(13) ? null : StorePath(r.GetString(8), r.GetString(9)),
+                r.IsDBNull(10) ? null : r.GetInt64(10),
+                r.GetInt64(12) == 1,
+                r.IsDBNull(13) ? null : r.GetString(13),
+                r.IsDBNull(14) ? null : Path.Combine(Root, r.GetString(14)),
+                r.IsDBNull(15) ? null : r.GetString(15)));
     }
 
     // ----- Managing -----
@@ -506,7 +619,8 @@ public sealed class ArchiveLibrary
                     Exec(conn, "DELETE FROM threads WHERE id = $t", ("$t", t));
                 }
             }
-            orphans = Query(conn, "SELECT f.id, f.sha256, f.ext, f.size FROM files f WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.file_id = f.id)",
+            // A file marked important outlives its chats: it is never deleted with them.
+            orphans = Query(conn, "SELECT f.id, f.sha256, f.ext, f.size FROM files f WHERE ifnull(f.mark, '') <> 'important' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.file_id = f.id)",
                 r => (r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3))).ToList();
             foreach (var o in orphans)
                 Exec(conn, "DELETE FROM files WHERE id = $f", ("$f", o.Id));
@@ -540,6 +654,10 @@ public sealed class ArchiveLibrary
 
     private static string Stamp(DateTime t) => t.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
     private static DateTime Parse(string s) => DateTime.ParseExact(s, "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
+
+    /// <summary>A stored UTC time as this computer shows it, whichever zone it is in today.</summary>
+    private static DateTime ShownTime(string utc)
+        => DateTime.SpecifyKind(DateTime.SpecifyKind(Parse(utc), DateTimeKind.Utc).ToLocalTime(), DateTimeKind.Unspecified);
     private static string Now() => DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
     private static string KindName(MessageKind k) => k switch

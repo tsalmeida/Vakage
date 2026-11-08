@@ -23,13 +23,37 @@ public enum MessageKind
 /// <param name="Body">The text, with the attachment marker removed (a caption, or empty).</param>
 /// <param name="AttachmentName">The file name the export refers to, when the message carried a file.</param>
 /// <param name="AttachmentSource">Where the source keeps that file, when it is not the name itself (a path inside a phone backup).</param>
+/// <param name="SourceId">The source's own id for the message, unique in its chat; what a later import matches on.</param>
+/// <param name="SentUtc">The exact time in UTC, when the source knows it (a phone's database does; an export does not).</param>
+/// <param name="SenderKey">Who sent it, as a stable id ("me", or a WhatsApp id), whatever name they are saved under.</param>
+/// <param name="Forwarded">WhatsApp marked it forwarded: someone else's content passed along.</param>
+/// <param name="MediaType">image, video, audio, sticker, gif or document, for an attachment.</param>
 public sealed record ParsedMessage(
     DateTime SentAt,
     string? Sender,
     string Body,
     string? AttachmentName,
     MessageKind Kind,
-    string? AttachmentSource = null);
+    string? AttachmentSource = null,
+    string? SourceId = null,
+    DateTime? SentUtc = null,
+    string? SenderKey = null,
+    bool Forwarded = false,
+    string? MediaType = null);
+
+public static class MediaTypes
+{
+    private static readonly Dictionary<string, string> ByExtension = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".jpg"] = "image", [".jpeg"] = "image", [".png"] = "image", [".heic"] = "image", [".bmp"] = "image",
+        [".webp"] = "sticker", [".gif"] = "gif",
+        [".mp4"] = "video", [".mov"] = "video", [".3gp"] = "video", [".avi"] = "video", [".mkv"] = "video",
+        [".opus"] = "audio", [".ogg"] = "audio", [".m4a"] = "audio", [".mp3"] = "audio", [".aac"] = "audio", [".wav"] = "audio", [".caf"] = "audio",
+    };
+
+    /// <summary>The kind of a file by its name, for sources that say nothing more (an export).</summary>
+    public static string FromName(string name) => ByExtension.GetValueOrDefault(Path.GetExtension(name), "document");
+}
 
 /// <summary>
 /// Reads the text file WhatsApp writes when a chat is exported, from Android
@@ -179,18 +203,20 @@ public static class WhatsAppChatParser
         if (ios.Success)
         {
             var caption = (body[..ios.Index] + body[(ios.Index + ios.Length)..]).Trim();
-            return new ParsedMessage(sentAt, sender, caption, ios.Groups["file"].Value.Trim(), MessageKind.Text);
+            var file = ios.Groups["file"].Value.Trim();
+            return new ParsedMessage(sentAt, sender, caption, file, MessageKind.Text, MediaType: MediaTypes.FromName(file));
         }
 
         var android = AndroidAttachment.Match(body);
         if (android.Success)
         {
             var caption = android.Groups["caption"].Success ? android.Groups["caption"].Value.Trim() : "";
-            return new ParsedMessage(sentAt, sender, caption, android.Groups["file"].Value.Trim(), MessageKind.Text);
+            var file = android.Groups["file"].Value.Trim();
+            return new ParsedMessage(sentAt, sender, caption, file, MessageKind.Text, MediaType: MediaTypes.FromName(file));
         }
 
         if (knownFiles is not null && !body.Contains('\n') && knownFiles.Contains(body.Trim()))
-            return new ParsedMessage(sentAt, sender, "", body.Trim(), MessageKind.Text);
+            return new ParsedMessage(sentAt, sender, "", body.Trim(), MessageKind.Text, MediaType: MediaTypes.FromName(body.Trim()));
 
         return new ParsedMessage(sentAt, sender, body, null, MessageKind.Text);
     }

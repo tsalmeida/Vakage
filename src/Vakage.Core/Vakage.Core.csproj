@@ -13,5 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.12" />
+    <!-- The same SkiaSharp Avalonia ships, for thumbnails without the UI. -->
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
   </ItemGroup>
 </Project>

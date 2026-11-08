@@ -91,7 +91,8 @@
           </Border>
         </Grid>
 
-        <!-- Files: every stored file of the account, largest first. -->
+        <!-- Files: every stored file of the account, on its list (important,
+             irrelevant, unsorted), largest first. -->
         <Border x:Name="FilesPanel" Classes="section" Padding="0" IsVisible="False">
           <DockPanel>
             <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="16,16,16,8">
@@ -100,21 +101,55 @@
                 <TextBlock Classes="caption" x:Name="FilesCaption" TextWrapping="Wrap" />
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <ComboBox x:Name="SenderModeBox" MinWidth="150" SelectionChanged="OnFilesFilterChanged" />
-                <ComboBox x:Name="SenderBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" />
-                <Button Classes="pill amber" x:Name="OpenFileButton" Click="OnOpenFileClick" IsEnabled="False">
-                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FolderOpen}" Text="Open" Hue="amber" />
+                <Button Classes="pill lime" x:Name="ImportantTab" Click="OnFileListClick" Tag="Important"
+                        ToolTip.Tip="Show only the important files: the precious ones, kept whole">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Star}" Text="Important" Hue="lime" />
+                </Button>
+                <Button Classes="pill orange" x:Name="IrrelevantTab" Click="OnFileListClick" Tag="Irrelevant"
+                        ToolTip.Tip="Show the irrelevant files: noise to reduce to a thumbnail or its text">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Ban}" Text="Irrelevant" Hue="orange" />
+                </Button>
+                <Button Classes="pill amber" x:Name="UnsortedTab" Click="OnFileListClick" Tag="Unsorted"
+                        ToolTip.Tip="Show the files on neither list yet">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Paperclip}" Text="Unsorted" Hue="amber" />
+                </Button>
+                <Button Classes="pill amber active" x:Name="AllFilesTab" Click="OnFileListClick" Tag="All">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.BoxArchive}" Text="All" Hue="amber" />
                 </Button>
               </StackPanel>
             </Grid>
-            <Grid DockPanel.Dock="Top" ColumnDefinitions="110,*,240,280,110" Margin="24,0,24,4">
-              <TextBlock Grid.Column="0" Classes="columnheader" Text="Size" />
-              <TextBlock Grid.Column="1" Classes="columnheader" Text="File" />
-              <TextBlock Grid.Column="2" Classes="columnheader" Text="Sent by" />
-              <TextBlock Grid.Column="3" Classes="columnheader" Text="In" />
-              <TextBlock Grid.Column="4" Classes="columnheader" Text="First sent" />
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8">
+              <ComboBox x:Name="SenderModeBox" MinWidth="150" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4" />
+              <ComboBox x:Name="SenderBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
+              <Button Classes="pill lime" x:Name="MarkImportantButton" Click="OnMarkClick" Tag="important" IsEnabled="False" Margin="0,4,8,4"
+                      ToolTip.Tip="Mark the selected files important: kept whole, never reduced, never deleted with a chat">
+                <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Star}" Text="Mark important" Hue="lime" />
+              </Button>
+              <Button Classes="pill orange" x:Name="MarkIrrelevantButton" Click="OnMarkClick" Tag="irrelevant" IsEnabled="False" Margin="0,4,8,4"
+                      ToolTip.Tip="Mark the selected files irrelevant">
+                <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Ban}" Text="Mark irrelevant" Hue="orange" />
+              </Button>
+              <Button Classes="pill slate" x:Name="ClearMarkButton" Click="OnMarkClick" Tag="" IsEnabled="False" Margin="0,4,8,4"
+                      ToolTip.Tip="Take your mark off: the file goes back to what Vakage suggests">
+                <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Eraser}" Text="Clear mark" Hue="slate" />
+              </Button>
+              <Button Classes="pill amber" x:Name="OpenFileButton" Click="OnOpenFileClick" IsEnabled="False" Margin="0,4,8,4">
+                <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FolderOpen}" Text="Open" Hue="amber" />
+              </Button>
+              <Button Classes="pill orange" x:Name="ReduceButton" Click="OnReduceClick" IsVisible="False" Margin="8,4,0,4"
+                      ToolTip.Tip="Keep only the text or a thumbnail of the irrelevant files (the selected ones, or all on this list) and delete the originals">
+                <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Compress}" Text="Reduce" Hue="orange" />
+              </Button>
+            </WrapPanel>
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="64,96,*,260,180,220,96" Margin="24,0,24,4">
+              <TextBlock Grid.Column="1" Classes="columnheader" Text="Size" />
+              <TextBlock Grid.Column="2" Classes="columnheader" Text="File" />
+              <TextBlock Grid.Column="3" Classes="columnheader" Text="Standing" />
+              <TextBlock Grid.Column="4" Classes="columnheader" Text="Sent by" />
+              <TextBlock Grid.Column="5" Classes="columnheader" Text="In" />
+              <TextBlock Grid.Column="6" Classes="columnheader" Text="First sent" />
             </Grid>
-            <ListBox x:Name="FileList" Margin="8,0,8,8" SelectionMode="Single"
+            <ListBox x:Name="FileList" Margin="8,0,8,8" SelectionMode="Multiple"
                      SelectionChanged="OnFileSelectionChanged" DoubleTapped="OnFileDoubleTapped" />
           </DockPanel>
         </Border>

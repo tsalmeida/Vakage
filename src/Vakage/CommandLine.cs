@@ -11,7 +11,10 @@ namespace Vakage;
 ///   Vakage --import-ios &lt;WhatsApp shared container&gt; --account &lt;name&gt; [--chat &lt;name or number&gt;[,…]] [--me &lt;name&gt;]
 ///   Vakage --join &lt;chat id&gt;,&lt;chat id&gt; --title &lt;name&gt;
 ///   Vakage --list [--account &lt;name&gt;]
-///   Vakage --files --account &lt;name&gt; [--sender &lt;name&gt;] [--top &lt;n&gt;]
+///   Vakage --files --account &lt;name&gt; [--list important|irrelevant|unsorted] [--sender &lt;name&gt;] [--top &lt;n&gt;]
+///   Vakage --suggest
+///   Vakage --mark important|irrelevant|none --file &lt;id&gt;[,…]
+///   Vakage --reduce --account &lt;name&gt; [--file &lt;id&gt;[,…]] --yes
 ///
 /// Every command takes --library &lt;folder&gt; to work on another library than
 /// the one in settings.
@@ -19,7 +22,7 @@ namespace Vakage;
 internal static class CommandLine
 {
     public static bool Requested(string[] args)
-        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--help" or "-h");
+        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--suggest" or "--mark" or "--reduce" or "--help" or "-h");
 
     public static int Run(string[] args)
     {
@@ -43,6 +46,12 @@ internal static class CommandLine
                 return Join(library, ids, options);
             if (options.Has("--files"))
                 return Files(library, options);
+            if (options.Has("--suggest"))
+                return Suggest(library);
+            if (options.Value("--mark") is { } mark)
+                return Mark(library, mark, options);
+            if (options.Has("--reduce"))
+                return Reduce(library, options);
             return List(library, options);
         }
         catch (Exception ex)
@@ -58,7 +67,11 @@ internal static class CommandLine
         Vakage --import-ios <WhatsApp shared container from an iPhone backup> --account <name> [--chat <name or number>[,…]] [--me <name>]
         Vakage --join <chat id>,<chat id>[,…] --title <name>
         Vakage --list [--account <name>]
-        Vakage --files --account <name> [--sender <name>] [--top <n>]
+        Vakage --files --account <name> [--list important|irrelevant|unsorted] [--sender <name>] [--top <n>]
+        Vakage --suggest                          (work out important / irrelevant suggestions again)
+        Vakage --mark important|irrelevant|none --file <id>[,…]
+        Vakage --reduce --account <name> [--file <id>[,…]] --yes
+                                                  (keep the text or a thumbnail of irrelevant files and DELETE the originals)
         Any command: --library <folder> (default: the library in settings)
         """;
 
@@ -73,6 +86,7 @@ internal static class CommandLine
         Console.WriteLine($"{(r.NewChat ? "New chat" : "Existing chat")} \"{r.Title}\" in {account.Name}: " +
                           $"{r.MessagesAdded} messages added, {r.MessagesAlreadyThere} already there; " +
                           $"{r.FilesStored} files stored, {r.FilesAlreadyStored} already in the library, {r.FilesMissing} not in the export.");
+        Suggest(library);
         return 0;
     }
 
@@ -86,6 +100,9 @@ internal static class CommandLine
 
         var results = library.ImportWhatsAppIos(account.Id, container, filter, line => Console.WriteLine($"Importing {line}…"));
         if (results.Count == 0) Console.WriteLine("No chat matched.");
+        Console.WriteLine($"Done: {results.Count} chats, {results.Sum(r => r.MessagesAdded):N0} messages added, {results.Sum(r => r.MessagesAlreadyThere):N0} already there, " +
+                          $"{results.Sum(r => r.FilesStored):N0} files stored, {results.Sum(r => r.FilesAlreadyStored):N0} already in the library, {results.Sum(r => r.FilesMissing):N0} missing from the backup.");
+        Suggest(library);
         foreach (var r in results)
             Console.WriteLine($"  [{r.ChatId}] {r.Title}: {r.MessagesAdded} messages added, {r.MessagesAlreadyThere} already there; " +
                               $"{r.FilesStored} files stored, {r.FilesAlreadyStored} already in the library, {r.FilesMissing} missing from the backup.");
@@ -117,16 +134,74 @@ internal static class CommandLine
 
     private static int Files(ArchiveLibrary library, Options options)
     {
-        var name = options.Value("--account") ?? throw new ArgumentException("--files needs --account <name>.");
-        var account = library.Accounts().FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-            ?? throw new ArgumentException($"No account named {name}.");
+        var account = FindAccount(library, options, "--files");
         var top = int.TryParse(options.Value("--top"), out var n) ? n : 50;
-        var files = library.Files(account.Id, options.Value("--sender"));
-        Console.WriteLine($"{files.Count} files, {Format.Bytes(files.Sum(f => f.Size))}");
+        var list = options.Value("--list")?.ToLowerInvariant() switch
+        {
+            null or "all" => FileList.All,
+            "important" => FileList.Important,
+            "irrelevant" => FileList.Irrelevant,
+            "unsorted" => FileList.Unsorted,
+            var other => throw new ArgumentException($"--list takes important, irrelevant or unsorted, not {other}."),
+        };
+        var files = library.Files(account.Id, options.Value("--sender"), list: list);
+        Console.WriteLine($"{files.Count:N0} files, {Format.Bytes(files.Where(f => f.Reduced is null).Sum(f => f.Size))} kept whole");
         foreach (var f in files.Take(top))
-            Console.WriteLine($"  {Format.Bytes(f.Size),10}  {f.Name}  from {f.Senders} in {f.Chats}, {f.FirstSent:yyyy-MM-dd}");
+            Console.WriteLine($"  [{f.Id}] {Format.Bytes(f.Size),10}  {Standing(f),-40} {f.Name}  from {f.Senders} in {f.Chats}, {f.FirstSent:yyyy-MM-dd}");
         return 0;
     }
+
+    internal static string Standing(StoredFile f)
+    {
+        var s = f.Mark is { } mark ? mark
+            : f.Suggestion is { } suggestion ? $"{suggestion}? ({f.Reason})"
+            : f.Reason is { } why ? $"unsorted ({why})" : "unsorted";
+        return f.Reduced is { } reduced ? $"{s}, now {reduced}" : s;
+    }
+
+    private static int Suggest(ArchiveLibrary library)
+    {
+        var r = library.Suggest();
+        Console.WriteLine($"Suggestions: {r.Important:N0} important, {r.Irrelevant:N0} irrelevant, {r.Unsorted:N0} left unsorted (your own marks always win).");
+        return 0;
+    }
+
+    private static int Mark(ArchiveLibrary library, string mark, Options options)
+    {
+        var value = mark.ToLowerInvariant() switch
+        {
+            "important" => ArchiveLibrary.Important,
+            "irrelevant" => ArchiveLibrary.Irrelevant,
+            "none" => null,
+            _ => throw new ArgumentException("--mark takes important, irrelevant or none."),
+        };
+        var ids = FileIds(options) ?? throw new ArgumentException("--mark needs --file <id>[,…] (ids as --files shows them).");
+        library.Mark(ids, value);
+        Console.WriteLine($"Marked {ids.Count} file(s) {mark}.");
+        return 0;
+    }
+
+    private static int Reduce(ArchiveLibrary library, Options options)
+    {
+        var account = FindAccount(library, options, "--reduce");
+        if (!options.Has("--yes"))
+            throw new ArgumentException("--reduce deletes the originals of irrelevant files, keeping only their text or a thumbnail. Add --yes to go ahead.");
+        var r = library.Reduce(account.Id, FileIds(options), new EidokanonTextReader(), line => Console.WriteLine($"Reducing {line}"));
+        Console.WriteLine($"Reduced: {r.ToText} kept as text, {r.ToThumbnail} as thumbnails, {r.Removed} removed with a notice, {r.Kept} kept whole; {Format.Bytes(r.BytesFreed)} freed.");
+        foreach (var note in r.Notes.Take(20)) Console.WriteLine($"  {note}");
+        return 0;
+    }
+
+    private static Account FindAccount(ArchiveLibrary library, Options options, string command)
+    {
+        var name = options.Value("--account") ?? throw new ArgumentException($"{command} needs --account <name>.");
+        return library.Accounts().FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException($"No account named {name}.");
+    }
+
+    private static List<long>? FileIds(Options options)
+        => options.Value("--file")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(i => long.Parse(i, System.Globalization.CultureInfo.InvariantCulture)).ToList();
 
     private sealed class Options
     {
