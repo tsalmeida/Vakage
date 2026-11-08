@@ -26,7 +26,12 @@ public sealed record Conversation(long? ChatId, long? ThreadId, string Title, in
 public sealed record StoredMessage(long Id, long ChatId, DateTime SentAt, string? Sender, string Body, MessageKind Kind, string? AttachmentName,
     long? FileId, string? FilePath, long? FileSize, bool Forwarded = false, string? Reduced = null, string? ThumbPath = null, string? FileText = null,
     bool Starred = false, string? QuotedSender = null, string? QuotedBody = null, string? LinkTitle = null, string? LinkUrl = null,
-    string? MessageThumb = null, string? VCard = null, int? ForwardScore = null);
+    string? MessageThumb = null, string? VCard = null, int? ForwardScore = null, string? SenderKey = null, bool MediaDeleted = false,
+    double? Duration = null)
+{
+    /// <summary>Written by the account's owner.</summary>
+    public bool FromMe => SenderKey == "me";
+}
 
 /// <summary>One stored file, with who sent it and where. A file sent many times is one row.</summary>
 /// <param name="Mark">important or irrelevant, as the person decided; null when undecided.</param>
@@ -153,7 +158,14 @@ public sealed partial class ArchiveLibrary
             ("mime", "TEXT"), ("thumb", "TEXT"), ("original_sender", "TEXT"), ("mentions", "TEXT"), ("raw_meta", "BLOB"), ("raw_receipts", "BLOB"));
         AddColumns(conn, "chats", ("created_utc", "TEXT"), ("creator_key", "TEXT"), ("noisy", "INTEGER NOT NULL DEFAULT 0"),
             ("archived", "INTEGER NOT NULL DEFAULT 0"));
-        AddColumns(conn, "messages", ("duration", "REAL"), ("media_size", "INTEGER"));
+        AddColumns(conn, "messages", ("duration", "REAL"), ("media_size", "INTEGER"), ("media_deleted", "INTEGER NOT NULL DEFAULT 0"));
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS excluded_messages (
+              chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+              source_id TEXT NOT NULL,
+              PRIMARY KEY (chat_id, source_id)
+            );
+            """);
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS people (
               account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -317,10 +329,11 @@ public sealed partial class ArchiveLibrary
             // The contact's or group's current name, as the phone has it now.
             Exec(conn, "UPDATE chats SET title = $t, kind = ifnull($d, kind) WHERE id = $c", ("$t", title), ("$d", (object?)chatKind ?? DBNull.Value), ("$c", chatId));
 
-        // Messages the chat holds already, by the source's own id.
+        // Messages the chat holds already, by the source's own id, and those deleted on purpose.
         var knownIds = newChat
             ? new HashSet<string>(StringComparer.Ordinal)
-            : Query(conn, "SELECT source_id FROM messages WHERE chat_id = $c AND source_id IS NOT NULL", r => r.GetString(0), ("$c", chatId))
+            : Query(conn, "SELECT source_id FROM messages WHERE chat_id = $c AND source_id IS NOT NULL UNION SELECT source_id FROM excluded_messages WHERE chat_id = $c",
+                    r => r.GetString(0), ("$c", chatId))
                 .ToHashSet(StringComparer.Ordinal);
 
         // What the chat already holds, counted: a message repeated in the same
@@ -772,7 +785,8 @@ public sealed partial class ArchiveLibrary
         return Query(conn, $"""
             SELECT m.id, m.chat_id, m.sent_at, m.sender, m.body, m.kind, m.attachment_name, m.file_id, f.sha256, f.ext, f.size,
                    m.sent_utc, m.forwarded, f.reduced, f.thumb, f.text,
-                   m.starred, q.sender, q.body, q.attachment_name, m.link_title, m.link_url, m.thumb, m.vcard, m.forward_score
+                   m.starred, q.sender, q.body, q.attachment_name, m.link_title, m.link_url, m.thumb, m.vcard, m.forward_score,
+                   m.sender_key, m.media_deleted, m.duration
             FROM messages m LEFT JOIN files f ON f.id = m.file_id
             LEFT JOIN messages q ON m.reply_to IS NOT NULL AND q.chat_id = m.chat_id AND q.source_id IN (m.reply_to || '|0', m.reply_to || '|1')
             WHERE m.chat_id IN ({ids}) ORDER BY coalesce(m.sent_utc, m.sent_at), m.chat_id, m.seq
@@ -795,7 +809,10 @@ public sealed partial class ArchiveLibrary
                 r.IsDBNull(21) ? null : r.GetString(21),
                 r.IsDBNull(22) ? null : Path.Combine(Root, r.GetString(22)),
                 r.IsDBNull(23) ? null : r.GetString(23),
-                r.IsDBNull(24) ? null : r.GetInt32(24)));
+                r.IsDBNull(24) ? null : r.GetInt32(24),
+                r.IsDBNull(25) ? null : r.GetString(25),
+                r.GetInt64(26) == 1,
+                r.IsDBNull(27) ? null : r.GetDouble(27)));
     }
 
     // ----- Managing -----

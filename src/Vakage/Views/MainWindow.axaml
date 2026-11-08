@@ -68,36 +68,57 @@
                   <TextBlock Classes="heading" x:Name="ChatTitle" TextWrapping="Wrap" />
                   <TextBlock Classes="caption" x:Name="ChatCaption" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                  <TextBlock Classes="caption" Text="You are" VerticalAlignment="Center" />
-                  <ComboBox x:Name="SelfBox" MinWidth="160" VerticalAlignment="Center" SelectionChanged="OnSelfChanged"
-                            ToolTip.Tip="Your name as this account's chats write it; your messages sit on the right" />
-                </StackPanel>
-              </Grid>
-              <DockPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="8,0,0,0">
-                  <Button Classes="pill blue" x:Name="JoinButton" Click="OnJoinClick" IsEnabled="False"
-                          ToolTip.Tip="These chats are one person (Ctrl+click to select several): each history stays apart, and can be read alone or all together">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+                  <Button Classes="pill blue" x:Name="JoinButton" Click="OnJoinClick" IsVisible="False"
+                          ToolTip.Tip="These chats are one person: each history stays apart, and can be read alone or all together">
                     <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Link}" Text="Same person" Hue="blue" />
                   </Button>
-                  <Button Classes="pill blue" x:Name="UnjoinButton" Click="OnUnjoinClick" IsEnabled="False"
-                          ToolTip.Tip="Not the same person: list these chats apart again">
-                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.LinkSlash}" Text="Separate" Hue="blue" />
+                  <Button Classes="pill indigo" x:Name="CalendarButton" Click="OnCalendarClick" IsEnabled="False"
+                          ToolTip.Tip="A calendar of this conversation: each day coloured by how much was said; click a day to go to it">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.CalendarDays}" Text="Calendar" Hue="indigo" />
                   </Button>
-                  <Button Classes="pill orange" x:Name="NoisyButton" Click="OnNoisyClick" IsEnabled="False"
-                          ToolTip.Tip="A chat of daily forwards: its pictures are pruned hard, keeping what looks like real photos and voice notes">
-                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.VolumeHigh}" Text="Noisy" Hue="orange" />
+                  <Button Classes="pill amber" x:Name="MediaButton" Click="OnMediaClick" IsEnabled="False"
+                          ToolTip.Tip="Every file exchanged in this conversation: pictures, videos, audio, documents">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Paperclip}" Text="Media" Hue="amber" />
                   </Button>
-                  <Button Classes="pill orange" x:Name="DeleteButton" Click="OnDeleteClick" IsEnabled="False"
-                          ToolTip.Tip="Delete the selected conversations for good (later imports leave them out), and the files nothing else uses">
-                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.TrashCan}" Text="Delete" Hue="orange" />
+                  <Button Classes="pill slate" x:Name="SettingsButton" Click="OnChatSettingsClick" IsEnabled="False"
+                          ToolTip.Tip="This conversation's settings: noisy, separate, delete">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Gear}" Hue="slate" />
                   </Button>
                 </StackPanel>
-                <Panel />
-              </DockPanel>
+              </Grid>
               <!-- One person's chat histories: all together, or each alone. -->
-              <WrapPanel x:Name="HistoryBar" DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8" />
-              <ListBox x:Name="MessageList" Margin="8,0,8,8" SelectionMode="Single" />
+              <WrapPanel x:Name="HistoryBar" DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,4" />
+              <!-- What can be done with the messages picked in the stream. -->
+              <Border x:Name="SelectionBar" DockPanel.Dock="Top" Classes="section bar" Margin="12,0,12,8" IsVisible="False">
+                <WrapPanel Orientation="Horizontal">
+                  <TextBlock x:Name="SelectionCaption" Classes="caption" VerticalAlignment="Center" Margin="4,0,12,0" />
+                  <Button Classes="pill lime" Click="OnMessagesMarkClick" Tag="important" Margin="0,2,8,2"
+                          ToolTip.Tip="Mark the media of these messages important: kept whole, never reduced">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Star}" Text="Important" Hue="lime" />
+                  </Button>
+                  <Button Classes="pill orange" Click="OnMessagesMarkClick" Tag="irrelevant" Margin="0,2,8,2"
+                          ToolTip.Tip="Mark the media of these messages irrelevant">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Ban}" Text="Irrelevant" Hue="orange" />
+                  </Button>
+                  <Button Classes="pill orange" Click="OnMessagesCompressClick" Margin="0,2,8,2"
+                          ToolTip.Tip="Keep a small version of their media: documents become text, pictures a thumbnail (or their words), videos a picture of the first frame">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Compress}" Text="Compress" Hue="orange" />
+                  </Button>
+                  <Button Classes="pill orange" Click="OnMessagesDeleteMediaClick" Margin="0,2,8,2"
+                          ToolTip.Tip="Delete only their media; the messages stay, with a notice">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Eraser}" Text="Delete media" Hue="orange" />
+                  </Button>
+                  <Button Classes="pill orange" Click="OnMessagesDeleteClick" Margin="0,2,8,2"
+                          ToolTip.Tip="Delete these messages completely, with their media">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.TrashCan}" Text="Delete" Hue="orange" />
+                  </Button>
+                  <Button Classes="pill slate" Click="OnClearSelectionClick" Margin="0,2,0,2" ToolTip.Tip="Unselect them all">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Xmark}" Hue="slate" />
+                  </Button>
+                </WrapPanel>
+              </Border>
+              <ListBox x:Name="MessageList" Margin="8,0,8,8" SelectionMode="Multiple,Toggle" SelectionChanged="OnMessageSelectionChanged" />
             </DockPanel>
           </Border>
         </Grid>
@@ -134,6 +155,9 @@
               </StackPanel>
             </Grid>
             <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8">
+              <ComboBox x:Name="WithBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4"
+                        ToolTip.Tip="Files exchanged with one person (all their chat histories) or in one group" />
+              <ComboBox x:Name="TypeBox" MinWidth="140" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
               <ComboBox x:Name="SenderModeBox" MinWidth="150" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4" />
               <ComboBox x:Name="SenderBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
               <Button Classes="pill lime" x:Name="MarkImportantButton" Click="OnMarkClick" Tag="important" IsEnabled="False" Margin="0,4,8,4"

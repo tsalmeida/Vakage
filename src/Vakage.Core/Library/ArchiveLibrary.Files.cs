@@ -96,7 +96,8 @@ public sealed partial class ArchiveLibrary
     /// that person sent (<paramref name="excludeSender"/> turns that around);
     /// <paramref name="list"/> keeps one standing.
     /// </summary>
-    public IReadOnlyList<StoredFile> Files(long accountId, string? sender = null, bool excludeSender = false, FileList list = FileList.All)
+    public IReadOnlyList<StoredFile> Files(long accountId, string? sender = null, bool excludeSender = false, FileList list = FileList.All,
+        IReadOnlyList<long>? chatIds = null, IReadOnlyList<string>? mediaTypes = null)
     {
         using var conn = Connect();
         var filter = sender is null ? "" : excludeSender
@@ -110,6 +111,11 @@ public sealed partial class ArchiveLibrary
             FileList.Unsorted => " AND coalesce(f.mark, f.suggestion) IS NULL",
             _ => "",
         };
+        // Exchanged with one person (all their chat histories) or in one group, and of some kinds.
+        if (chatIds is { Count: > 0 })
+            filter += $" AND f.id IN (SELECT m3.file_id FROM messages m3 WHERE m3.chat_id IN ({string.Join(",", chatIds)}) AND m3.file_id IS NOT NULL)";
+        if (mediaTypes is { Count: > 0 })
+            filter += $" AND f.id IN (SELECT m4.file_id FROM messages m4 WHERE m4.media_type IN ({string.Join(",", mediaTypes.Select(t => "'" + t.Replace("'", "") + "'"))}) AND m4.file_id IS NOT NULL)";
         var parameters = new List<(string, object)> { ("$a", accountId) };
         if (sender is not null) parameters.Add(("$s", sender));
         return Query(conn, $"""
@@ -350,9 +356,11 @@ public sealed partial class ArchiveLibrary
     /// read or thumbnailed safely. With <paramref name="fileIds"/> null, every
     /// irrelevant file of the account.
     /// </summary>
-    public ReduceResult Reduce(long accountId, IReadOnlyList<long>? fileIds, ITextReader? reader, Action<string>? progress = null)
+    public ReduceResult Reduce(long accountId, IReadOnlyList<long>? fileIds, ITextReader? reader, Action<string>? progress = null, bool chosen = false)
     {
-        var candidates = Files(accountId, list: FileList.Irrelevant)
+        // Files the person picked themselves are compressed whatever their
+        // standing; otherwise only irrelevant ones. Important ones never.
+        var candidates = Files(accountId, list: chosen ? FileList.All : FileList.Irrelevant)
             .Where(f => f.Reduced is null && f.Mark != Important && (fileIds is null || fileIds.Contains(f.Id)))
             .ToList();
         int toText = 0, toThumb = 0, removed = 0, kept = 0, n = 0;
@@ -442,6 +450,86 @@ public sealed partial class ArchiveLibrary
         }
         if (reader?.Unavailable is { } why) notes.Insert(0, why);
         return new ReduceResult(toText, toThumb, removed, kept, freed, notes);
+    }
+
+    /// <summary>
+    /// Deletes messages for good: they leave the archive, a later import of
+    /// the same phone does not bring them back, and a file goes with them
+    /// when nothing else uses it (never one marked important). Returns the bytes freed.
+    /// </summary>
+    public long DeleteMessages(IReadOnlyList<long> messageIds)
+    {
+        if (messageIds.Count == 0) return 0;
+        using var conn = Connect();
+        using (var tx = conn.BeginTransaction())
+        {
+            var ids = string.Join(",", messageIds);
+            Exec(conn, $"INSERT OR IGNORE INTO excluded_messages (chat_id, source_id) SELECT chat_id, source_id FROM messages WHERE id IN ({ids}) AND source_id IS NOT NULL");
+            Exec(conn, $"DELETE FROM messages WHERE id IN ({ids})");
+            tx.Commit();
+        }
+        return DeleteOrphanFiles(conn);
+    }
+
+    /// <summary>
+    /// Keeps the messages but lets their files go: where each was, a notice
+    /// says the media was deleted. A file another message still uses stays
+    /// for that one. Returns the bytes freed.
+    /// </summary>
+    public long DeleteMedia(IReadOnlyList<long> messageIds)
+    {
+        if (messageIds.Count == 0) return 0;
+        using var conn = Connect();
+        Exec(conn, $"UPDATE messages SET file_id = NULL, media_deleted = 1, thumb = NULL WHERE id IN ({string.Join(",", messageIds)}) AND (file_id IS NOT NULL OR thumb IS NOT NULL)");
+        return DeleteOrphanFiles(conn);
+    }
+
+    /// <summary>The files of these messages, for compressing or marking them.</summary>
+    public IReadOnlyList<long> FilesOf(IReadOnlyList<long> messageIds)
+    {
+        if (messageIds.Count == 0) return [];
+        using var conn = Connect();
+        return Query(conn, $"SELECT DISTINCT file_id FROM messages WHERE id IN ({string.Join(",", messageIds)}) AND file_id IS NOT NULL", r => r.GetInt64(0));
+    }
+
+    /// <summary>Removes stored files no message uses any more, except those marked important.</summary>
+    private long DeleteOrphanFiles(Microsoft.Data.Sqlite.SqliteConnection conn)
+    {
+        List<(long Id, string Sha, string Ext, long Size, string? Reduced)> orphans;
+        using (var tx = conn.BeginTransaction())
+        {
+            orphans = Query(conn, "SELECT f.id, f.sha256, f.ext, f.size, f.reduced FROM files f WHERE ifnull(f.mark, '') <> 'important' AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.file_id = f.id)",
+                r => (r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(3), r.IsDBNull(4) ? null : r.GetString(4))).ToList();
+            foreach (var o in orphans) Exec(conn, "DELETE FROM files WHERE id = $f", ("$f", o.Id));
+            tx.Commit();
+        }
+        long freed = 0;
+        foreach (var o in orphans)
+        {
+            foreach (var path in new[] { StorePath(o.Sha, o.Ext), ThumbPathFor(o.Sha) })
+            {
+                try
+                {
+                    if (!File.Exists(path)) continue;
+                    var size = new FileInfo(path).Length;
+                    File.Delete(path);
+                    freed += size;
+                }
+                catch (IOException)
+                {
+                    // Left behind; harmless.
+                }
+            }
+        }
+        return freed;
+    }
+
+    /// <summary>A small picture of a video's first second, made once and kept under thumbs\v.</summary>
+    public string? VideoPreview(string sha256, string path)
+    {
+        var target = Path.Combine(Root, "thumbs", "v", sha256[..2], sha256 + ".jpg");
+        if (File.Exists(target)) return target;
+        return File.Exists(path) && Thumbnails.FromVideo(path, target) ? target : null;
     }
 
     /// <summary>Reads a file's text and keeps it beside the file, which stays (a PDF worth searching, say).</summary>

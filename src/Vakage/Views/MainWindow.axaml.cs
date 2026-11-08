@@ -41,6 +41,9 @@ public partial class MainWindow : Window
         FileList.ItemTemplate = new FuncDataTemplate<StoredFile>((f, _) => FileRow(f));
         SenderModeBox.ItemsSource = new[] { "Sent by", "Not sent by" };
         SenderModeBox.SelectedIndex = 0;
+        TypeBox.ItemsSource = FileTypes.Select(t => t.Label).ToList();
+        TypeBox.SelectedIndex = 0;
+        MessageList.ContextMenu = MessageMenu();
 
         try
         {
@@ -99,31 +102,12 @@ public partial class MainWindow : Window
         Status($"Account {account.Name} is ready. Import its exported chats with Import export.");
     }
 
-    private void ReloadSelf()
-    {
-        _loading = true;
-        if (_account is null)
-        {
-            SelfBox.ItemsSource = null;
-            _selfName = null;
-        }
-        else
-        {
-            _selfName = _library.SelfNameFor(_account.Id);
-            var senders = _library.Senders(_account.Id).ToList();
-            SelfBox.ItemsSource = senders;
-            SelfBox.SelectedItem = _selfName;
-        }
-        _loading = false;
-    }
-
-    private void OnSelfChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_loading || _account is null || SelfBox.SelectedItem is not string name) return;
-        _library.SetSelfName(_account.Id, name);
-        _selfName = name;
-        ShowSelectedConversation();
-    }
+    /// <summary>
+    /// The owner's name in exports, which carry no "from me" mark: worked out
+    /// from the chats (the sender found in all of them). A phone's database
+    /// marks the owner's messages itself.
+    /// </summary>
+    private void ReloadSelf() => _selfName = _account is null ? null : _library.SelfNameFor(_account.Id);
 
     // ----- Import -----
 
@@ -220,8 +204,9 @@ public partial class MainWindow : Window
 
     // ----- Conversations -----
 
-    private void ReloadConversations()
+    private void ReloadConversations(bool keepSelection = false)
     {
+        var keep = keepSelection ? _shown?.ChatIds : null;
         var conversations = _account is null ? [] : _library.Conversations(_account.Id);
         ConversationList.ItemsSource = conversations;
         ConversationsCaption.Text = _account is null
@@ -229,8 +214,16 @@ public partial class MainWindow : Window
             : conversations.Count == 0
                 ? $"No chats in {_account.Name} yet. Export a chat on the phone (Export chat, Include media) and import the zip."
                 : $"{conversations.Count} in {_account.Name}. Ctrl+click to select several: the same person, or to delete.";
-        if (conversations.Count > 0) ConversationList.SelectedIndex = 0;
+        var again = keep is null ? -1 : conversations.ToList().FindIndex(c => c.ChatIds.SequenceEqual(keep));
+        if (again >= 0)
+        {
+            ConversationList.SelectionChanged -= OnConversationSelectionChanged;
+            ConversationList.SelectedIndex = again;
+            ConversationList.SelectionChanged += OnConversationSelectionChanged;
+        }
+        else if (conversations.Count > 0) ConversationList.SelectedIndex = 0;
         else ShowSelectedConversation();
+        ReloadWith(conversations);
     }
 
     private void OnConversationSelectionChanged(object? sender, SelectionChangedEventArgs e) => ShowSelectedConversation();
@@ -242,19 +235,23 @@ public partial class MainWindow : Window
     private long? _history;
     private Conversation? _shown;
 
-    private void ShowSelectedConversation()
+    private List<object> _rows = [];
+
+    private void ShowSelectedConversation() => ShowSelectedConversation(null);
+
+    /// <param name="scrollTo">The row to show; the latest message when null.</param>
+    private void ShowSelectedConversation(int? scrollTo)
     {
         var selected = SelectedConversations();
-        JoinButton.IsEnabled = selected.Count >= 2;
-        UnjoinButton.IsEnabled = selected.Count == 1 && selected[0].IsJoined;
-        DeleteButton.IsEnabled = selected.Count >= 1;
-        NoisyButton.IsEnabled = selected.Count == 1;
+        JoinButton.IsVisible = selected.Count >= 2;
+        CalendarButton.IsEnabled = MediaButton.IsEnabled = SettingsButton.IsEnabled = selected.Count == 1;
+        SelectionBar.IsVisible = false;
         HistoryBar.Children.Clear();
 
         if (selected.Count != 1)
         {
             ChatTitle.Text = selected.Count == 0 ? "" : $"{selected.Count} conversations selected";
-            ChatCaption.Text = selected.Count == 0 ? "" : "Same person ties them together (each history stays apart); Delete removes them all.";
+            ChatCaption.Text = selected.Count == 0 ? "" : "Same person ties them together: each history stays apart, readable alone or all together.";
             MessageList.ItemsSource = null;
             _shown = null;
             return;
@@ -265,7 +262,6 @@ public partial class MainWindow : Window
         _shown = c;
         var chats = _library.Chats(_account!.Id).Where(x => c.ChatIds.Contains(x.Id)).ToList();
         var noisy = chats.Count > 0 && chats.All(x => x.Noisy);
-        NoisyButton.Classes.Set("active", noisy);
 
         var showing = _history is { } one ? [one] : c.ChatIds;
         var messages = _library.Messages(showing);
@@ -297,10 +293,174 @@ public partial class MainWindow : Window
             }
             rows.Add(m);
         }
+        _rows = rows;
         MessageList.ItemsSource = rows;
         // Opens on the latest message, as a chat does; after layout, or it lands short.
         if (rows.Count > 0)
-            Dispatcher.UIThread.Post(() => MessageList.ScrollIntoView(rows.Count - 1), DispatcherPriority.Background);
+        {
+            var target = Math.Clamp(scrollTo ?? rows.Count - 1, 0, rows.Count - 1);
+            Dispatcher.UIThread.Post(() => MessageList.ScrollIntoView(target), DispatcherPriority.Background);
+        }
+    }
+
+    // ----- Calendar, media, settings -----
+
+    private async void OnCalendarClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shown is not { } c) return;
+        var days = _rows.OfType<StoredMessage>().GroupBy(m => m.SentAt.Date).ToDictionary(g => g.Key, g => g.Count());
+        var title = _history is not null && _chatTitles is null ? $"{c.Title} ({ChatTitle.Text})" : c.Title;
+        if (await CalendarView.Pick(this, c.Title, days) is { } day)
+        {
+            var index = _rows.FindIndex(r => r is DayRow d && d.Day == day);
+            if (index >= 0)
+            {
+                MessageList.ScrollIntoView(Math.Min(index + 8, _rows.Count - 1));
+                Dispatcher.UIThread.Post(() => MessageList.ScrollIntoView(index), DispatcherPriority.Background);
+                Status($"{c.Title}, {day:dddd d MMMM yyyy}: {days[day]:N0} messages.");
+            }
+        }
+    }
+
+    private void OnMediaClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shown is not { } c) return;
+        _loading = true;
+        WithBox.SelectedItem = (WithBox.ItemsSource as IEnumerable<WithChoice>)?.FirstOrDefault(w => w.ChatIds.SequenceEqual(c.ChatIds));
+        _loading = false;
+        ShowTab(files: true);
+        ShowFiles();
+    }
+
+    private async void OnChatSettingsClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shown is not { } c || _account is null) return;
+        var chats = _library.Chats(_account.Id).Where(x => c.ChatIds.Contains(x.Id)).ToList();
+        switch (await ChatSettings.Show(this, c, chats))
+        {
+            case ChatSettingsChoice.ToggleNoisy:
+                var make = !(chats.Count > 0 && chats.All(x => x.Noisy));
+                _library.SetNoisy(c.ChatIds, make);
+                Status(make ? $"{c.Title} is noisy: working out again which of its files to keep…" : $"{c.Title} is no longer noisy.");
+                var r = await Task.Run(() => _library.Suggest());
+                ShowSelectedConversation();
+                ReloadFiles();
+                Status($"{c.Title} {(make ? "is noisy" : "is no longer noisy")}. Suggestions now: {r.Important:N0} important, {r.Irrelevant:N0} irrelevant.");
+                break;
+            case ChatSettingsChoice.Separate when c.ThreadId is { } thread:
+                _library.Unjoin(thread);
+                ReloadConversations();
+                Status($"{c.Title}'s {c.ChatIds.Count} chats are listed apart again.");
+                break;
+            case ChatSettingsChoice.Delete:
+                var ok = await Dialogs.Confirm(this, "Delete conversation",
+                    $"Delete {c.Title} from {_account.Name}'s archive? Its messages go, and every file no other conversation uses (files marked important stay). Later imports leave it out. This cannot be undone.",
+                    "Delete");
+                if (!ok) return;
+                var freed = _library.DeleteChats(c.ChatIds);
+                ReloadSelf();
+                ReloadConversations();
+                ReloadFiles();
+                Status($"Deleted {c.Title}; {Format.Bytes(freed)} freed.");
+                break;
+        }
+    }
+
+    // ----- Picking messages -----
+
+    private List<StoredMessage> SelectedMessages() => MessageList.SelectedItems?.OfType<StoredMessage>().ToList() ?? [];
+
+    private void OnMessageSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var picked = SelectedMessages();
+        SelectionBar.IsVisible = picked.Count > 0;
+        var withMedia = picked.Count(m => m.FileId is not null);
+        SelectionCaption.Text = $"{picked.Count:N0} message(s) picked, {withMedia:N0} with a file" +
+                                (withMedia > 0 ? $" ({Format.Bytes(picked.Where(m => m.FileId is not null && m.Reduced is null).Sum(m => m.FileSize ?? 0))})" : "");
+    }
+
+    private void OnClearSelectionClick(object? sender, RoutedEventArgs e) => MessageList.SelectedItems?.Clear();
+
+    private int FirstPickedRow() => SelectedMessages().Select(m => _rows.IndexOf(m)).Where(i => i >= 0).DefaultIfEmpty(_rows.Count - 1).Min();
+
+    private void OnMessagesMarkClick(object? sender, RoutedEventArgs e)
+    {
+        var mark = (sender as Control)?.Tag as string;
+        var files = _library.FilesOf(SelectedMessages().Select(m => m.Id).ToList());
+        if (files.Count == 0) { Status("None of the picked messages has a file."); return; }
+        _library.Mark(files, mark);
+        MessageList.SelectedItems?.Clear();
+        ReloadFiles();
+        Status($"{files.Count:N0} file(s) marked {mark}.");
+    }
+
+    private async void OnMessagesCompressClick(object? sender, RoutedEventArgs e)
+    {
+        if (_account is null) return;
+        var account = _account;
+        var picked = SelectedMessages();
+        var files = _library.FilesOf(picked.Select(m => m.Id).ToList());
+        if (files.Count == 0) { Status("None of the picked messages has a file."); return; }
+        var row = FirstPickedRow();
+        var reader = new EidokanonTextReader();
+        Status($"Compressing {files.Count:N0} file(s)…");
+        var r = await Task.Run(() => _library.Reduce(account.Id, files, reader, line => Status($"Compressing {line}"), chosen: true));
+        ShowSelectedConversation(row);
+        ReloadFiles();
+        Status($"Compressed: {r.ToText:N0} kept as text, {r.ToThumbnail:N0} as a thumbnail, {r.Removed:N0} removed with a notice, {r.Kept:N0} left whole " +
+               $"(important, or nothing safe to keep in their place); {Format.Bytes(r.BytesFreed)} freed.");
+    }
+
+    private async void OnMessagesDeleteMediaClick(object? sender, RoutedEventArgs e)
+    {
+        var picked = SelectedMessages().Where(m => m.FileId is not null || m.MessageThumb is not null).ToList();
+        if (picked.Count == 0) { Status("None of the picked messages has a file."); return; }
+        if (!await Dialogs.Confirm(this, "Delete media",
+                $"Delete the files of {picked.Count:N0} message(s)? The messages stay, with a notice where each file was. A file another message still uses stays for that one, and files marked important are kept. This cannot be undone.",
+                "Delete media")) return;
+        var row = FirstPickedRow();
+        var freed = _library.DeleteMedia(picked.Select(m => m.Id).ToList());
+        ShowSelectedConversation(row);
+        ReloadFiles();
+        Status($"Deleted the media of {picked.Count:N0} message(s); {Format.Bytes(freed)} freed.");
+    }
+
+    private async void OnMessagesDeleteClick(object? sender, RoutedEventArgs e)
+    {
+        var picked = SelectedMessages();
+        if (picked.Count == 0) return;
+        if (!await Dialogs.Confirm(this, "Delete messages",
+                $"Delete {picked.Count:N0} message(s) completely, with their files (a file another message uses, or one marked important, stays)? Later imports leave them out. This cannot be undone.",
+                "Delete")) return;
+        var row = FirstPickedRow();
+        var freed = _library.DeleteMessages(picked.Select(m => m.Id).ToList());
+        ShowSelectedConversation(row);
+        ReloadConversations(keepSelection: true);
+        ReloadFiles();
+        Status($"Deleted {picked.Count:N0} message(s); {Format.Bytes(freed)} freed.");
+    }
+
+    /// <summary>The same actions on a right click, for whatever is picked.</summary>
+    private ContextMenu MessageMenu()
+    {
+        MenuItem Item(string text, string glyph, string hue, EventHandler<RoutedEventArgs> act, string? tag = null)
+        {
+            var item = new MenuItem { Header = text, Tag = tag, Icon = new TextBlock { Text = ActionIcons.Glyph(glyph), FontFamily = ActionIcons.Solid, Foreground = Palette.ByName(hue)!.Brush500 } };
+            item.Click += act;
+            return item;
+        }
+        return new ContextMenu
+        {
+            ItemsSource = new object[]
+            {
+                Item("Mark media important", ActionIcons.Star, "lime", OnMessagesMarkClick, "important"),
+                Item("Mark media irrelevant", ActionIcons.Ban, "orange", OnMessagesMarkClick, "irrelevant"),
+                new Separator(),
+                Item("Compress media", ActionIcons.Compress, "orange", OnMessagesCompressClick),
+                Item("Delete media", ActionIcons.Eraser, "orange", OnMessagesDeleteMediaClick),
+                Item("Delete messages", ActionIcons.TrashCan, "orange", OnMessagesDeleteClick),
+            },
+        };
     }
 
     /// <summary>A button for one of a person's chat histories, or for all of them together.</summary>
@@ -319,18 +479,6 @@ public partial class MainWindow : Window
         };
         if (chatId is not null) HistoryBar.Children.Add(chip);
         return chip;
-    }
-
-    private async void OnNoisyClick(object? sender, RoutedEventArgs e)
-    {
-        if (_shown is not { } c || _account is null) return;
-        var make = !NoisyButton.Classes.Contains("active");
-        _library.SetNoisy(c.ChatIds, make);
-        Status(make ? $"{c.Title} is noisy: working out again which of its files to keep…" : $"{c.Title} is no longer noisy.");
-        var r = await Task.Run(() => _library.Suggest());
-        ShowSelectedConversation();
-        ReloadFiles();
-        Status($"{c.Title} {(make ? "is noisy" : "is no longer noisy")}. Suggestions now: {r.Important:N0} important, {r.Irrelevant:N0} irrelevant.");
     }
 
     private Dictionary<long, string>? _chatTitles;
@@ -355,32 +503,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnUnjoinClick(object? sender, RoutedEventArgs e)
-    {
-        var selected = SelectedConversations();
-        if (selected is not [{ ThreadId: { } thread } c]) return;
-        _library.Unjoin(thread);
-        ReloadConversations();
-        Status($"{c.Title}'s {c.ChatIds.Count} chats are listed apart again.");
-    }
-
-    private async void OnDeleteClick(object? sender, RoutedEventArgs e)
-    {
-        var selected = SelectedConversations();
-        if (selected.Count == 0 || _account is null) return;
-        var names = string.Join(", ", selected.Select(c => c.Title));
-        var ok = await Dialogs.Confirm(this, "Delete conversations",
-            $"Delete {names} from {_account.Name}'s archive? Their messages go, and so does every file no other conversation uses. " +
-            "This cannot be undone; the original exports are not touched.",
-            "Delete");
-        if (!ok) return;
-        var freed = _library.DeleteChats(selected.SelectMany(c => c.ChatIds).ToList());
-        ReloadSelf();
-        ReloadConversations();
-        ReloadFiles();
-        Status($"Deleted {names}; {Format.Bytes(freed)} freed.");
-    }
-
     // ----- Files -----
 
     private void ReloadFiles()
@@ -400,6 +522,32 @@ public partial class MainWindow : Window
     }
 
     private FileList _fileList = Core.Library.FileList.All;
+
+    private sealed record WithChoice(string Label, IReadOnlyList<long> ChatIds)
+    {
+        public override string ToString() => Label;
+    }
+
+    private static readonly (string Label, string[] Types)[] FileTypes =
+    [
+        ("All kinds", []),
+        ("Pictures", ["image"]),
+        ("Videos", ["video"]),
+        ("Audio", ["audio"]),
+        ("Documents", ["document"]),
+        ("Stickers and GIFs", ["sticker", "gif"]),
+    ];
+
+    private void ReloadWith(IReadOnlyList<Conversation> conversations)
+    {
+        _loading = true;
+        var previous = (WithBox.SelectedItem as WithChoice)?.ChatIds;
+        var choices = new List<WithChoice> { new("With anyone", []) };
+        choices.AddRange(conversations.OrderBy(c => c.Title, StringComparer.CurrentCultureIgnoreCase).Select(c => new WithChoice(c.Title, c.ChatIds)));
+        WithBox.ItemsSource = choices;
+        WithBox.SelectedItem = previous is null ? choices[0] : choices.FirstOrDefault(c => c.ChatIds.SequenceEqual(previous)) ?? choices[0];
+        _loading = false;
+    }
 
     private void OnFileListClick(object? sender, RoutedEventArgs e)
     {
@@ -425,7 +573,9 @@ public partial class MainWindow : Window
         var who = SenderBox.SelectedItem as string;
         var person = who is null or "Anyone" ? null : who;
         var exclude = SenderModeBox.SelectedIndex == 1;
-        var files = _library.Files(_account.Id, person, exclude, _fileList);
+        var with = WithBox.SelectedItem as WithChoice;
+        var types = FileTypes[Math.Max(0, TypeBox.SelectedIndex)].Types;
+        var files = _library.Files(_account.Id, person, exclude, _fileList, with?.ChatIds, types);
         FileList.ItemsSource = files;
         var whole = files.Where(f => f.Reduced is null).ToList();
         var list = _fileList switch
@@ -436,7 +586,9 @@ public partial class MainWindow : Window
             Core.Library.FileList.Documents => "document ",
             _ => "",
         };
-        FilesCaption.Text = $"{files.Count:N0} {list}files in {_account.Name}'s archive, {Format.Bytes(whole.Sum(f => f.Size))} kept whole" +
+        var kind = FileTypes[Math.Max(0, TypeBox.SelectedIndex)].Label.ToLowerInvariant();
+        FilesCaption.Text = $"{files.Count:N0} {list}files" + (types.Length > 0 ? $" ({kind})" : "") + (with is { ChatIds.Count: > 0 } ? $" with {with.Label}" : $" in {_account.Name}'s archive") +
+                            $", {Format.Bytes(whole.Sum(f => f.Size))} kept whole" +
                             (files.Count > whole.Count ? $", {files.Count - whole.Count:N0} already reduced" : "") +
                             ". A question mark is Vakage's suggestion; your mark always wins. Ctrl+click or Shift+click to select several.";
         OnFileSelectionChanged(null, null!);
@@ -592,7 +744,7 @@ public partial class MainWindow : Window
             return sys;
         }
 
-        var mine = _selfName is not null && m.Sender == _selfName;
+        var mine = m.FromMe || (m.SenderKey is null && _selfName is not null && m.Sender == _selfName);
         var content = new StackPanel { Spacing = 4 };
 
         var meta = new TextBlock
@@ -634,13 +786,19 @@ public partial class MainWindow : Window
                 catch (Exception) { /* not a picture */ }
             }
         }
+        else if (m.MediaDeleted)
+        {
+            var gone = new TextBlock { Text = $"The media of this message ({m.AttachmentName}) was deleted.", FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap };
+            gone.Classes.Add("caption");
+            content.Children.Add(gone);
+        }
         else if (m.Reduced is { } reduced && m.AttachmentName is { } let)
         {
             content.Children.Add(ReducedNotice(let, reduced, m.ThumbPath, m.FileText));
         }
         else if (m.AttachmentName is { } attachment)
         {
-            content.Children.Add(Attachment(attachment, m.FilePath, m.FileSize));
+            content.Children.Add(Attachment(attachment, m.FilePath, m.FileSize, m.Duration));
         }
 
         if (m.Body.Length > 0)
@@ -719,7 +877,7 @@ public partial class MainWindow : Window
     private static string Shorten(string text, int length)
         => text.Length <= length ? text.Replace('\n', ' ') : text[..length].Replace('\n', ' ') + "…";
 
-    private Control Attachment(string name, string? path, long? size)
+    private Control Attachment(string name, string? path, long? size, double? duration = null)
     {
         if (path is null)
         {
@@ -751,23 +909,25 @@ public partial class MainWindow : Window
                 (image.Source as IDisposable)?.Dispose();
                 image.Source = null;
             };
-            image.Cursor = new Cursor(StandardCursorType.Hand);
-            image.PointerPressed += (_, _) => OpenPath(path);
+            // A click picks the message; a double click opens the picture.
+            ToolTip.SetTip(image, "Double-click to open");
+            image.DoubleTapped += (_, _) => OpenPath(path);
             panel.Children.Add(image);
         }
 
         var button = new Button { HorizontalAlignment = HorizontalAlignment.Left };
         button.Classes.Add("pill");
         button.Classes.Add("amber");
-        button.Content = ActionIcons.Label(ActionIcons.Paperclip, $"{name} · {Format.Bytes(size ?? 0)}", "amber");
+        var length = duration is { } d ? $" · {TimeSpan.FromSeconds(Math.Round(d)):m\\:ss}" : "";
+        button.Content = ActionIcons.Label(ActionIcons.Paperclip, $"{name} · {Format.Bytes(size ?? 0)}{length}", "amber");
         button.Click += (_, _) => OpenPath(path);
         panel.Children.Add(button);
         return panel;
     }
 
-    private static Control FileRow(StoredFile f)
+    private Control FileRow(StoredFile f)
     {
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("64,96,*,260,180,220,96"), Margin = new Thickness(8, 4) };
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("76,96,*,260,180,220,96"), Margin = new Thickness(8, 4) };
         void Cell(int col, string text, bool mono = false, IBrush? hue = null)
         {
             var t = new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -792,11 +952,32 @@ public partial class MainWindow : Window
         return grid;
     }
 
+    /// <summary>A video's first frame, made by ffmpeg the first time its row is shown and kept.</summary>
+    private Control VideoPreview(StoredFile f)
+    {
+        var image = new Image { Width = 64, Height = 64, Stretch = Stretch.UniformToFill, HorizontalAlignment = HorizontalAlignment.Left };
+        image.AttachedToVisualTree += async (_, _) =>
+        {
+            if (image.Source is not null) return;
+            var preview = await Task.Run(() => _library.VideoPreview(f.Sha256, f.Path));
+            if (preview is null || image.Source is not null) return;
+            try { image.Source = new Bitmap(preview); } catch (Exception) { /* no frame */ }
+        };
+        image.DetachedFromVisualTree += (_, _) =>
+        {
+            (image.Source as IDisposable)?.Dispose();
+            image.Source = null;
+        };
+        return image;
+    }
+
     /// <summary>A small look at a picture, decoded only while its row is on screen.</summary>
-    private static Control Preview(StoredFile f)
+    private Control Preview(StoredFile f)
     {
         var source = f.Reduced is null ? f.Path : f.ThumbPath;
+        var isVideo = f.Reduced is null && f.MediaType == "video";
         var isPicture = source is not null && (f.Reduced is not null || f.MediaType is "image" or "sticker" or "gif");
+        if (isVideo) return VideoPreview(f);
         if (!isPicture)
         {
             var icon = new TextBlock
@@ -810,14 +991,14 @@ public partial class MainWindow : Window
             };
             return icon;
         }
-        var image = new Image { Width = 48, Height = 48, Stretch = Stretch.UniformToFill, HorizontalAlignment = HorizontalAlignment.Left };
+        var image = new Image { Width = 64, Height = 64, Stretch = Stretch.UniformToFill, HorizontalAlignment = HorizontalAlignment.Left };
         image.AttachedToVisualTree += (_, _) =>
         {
             if (image.Source is not null || !File.Exists(source)) return;
             try
             {
                 using var stream = File.OpenRead(source!);
-                image.Source = Bitmap.DecodeToWidth(stream, 96);
+                image.Source = Bitmap.DecodeToWidth(stream, 128);
             }
             catch (Exception)
             {

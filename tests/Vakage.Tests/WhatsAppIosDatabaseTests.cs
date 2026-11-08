@@ -221,6 +221,39 @@ public sealed class WhatsAppIosDatabaseTests : IDisposable
     }
 
     [Fact]
+    public void Picked_messages_can_be_deleted_lose_their_media_or_be_compressed()
+    {
+        var library = ArchiveLibrary.Open(Path.Combine(_dir, "library"));
+        var me = library.AddAccount("Tiago");
+        var ana = library.ImportWhatsAppIos(me.Id, Container).Single(r => r.Title == "Ana (+5511)").ChatId;
+        var messages = library.Messages([ana]);
+
+        // Files exchanged with one person, of one kind.
+        Assert.Single(library.Files(me.Id, chatIds: [ana], mediaTypes: ["image"]));
+        Assert.Single(library.Files(me.Id, chatIds: [ana], mediaTypes: ["document"]));
+
+        // Delete a message: gone, and a later import does not bring it back.
+        var hello = messages.Single(m => m.Body == "Bom dia!");
+        library.DeleteMessages([hello.Id]);
+        library.ImportWhatsAppIos(me.Id, Container, ["+5511"]);
+        Assert.DoesNotContain(library.Messages([ana]), m => m.Body == "Bom dia!");
+
+        // Delete only the media: the message stays, with a notice; the file goes.
+        var pdf = messages.Single(m => m.AttachmentName!?.StartsWith("Notes") == true);
+        library.DeleteMedia([pdf.Id]);
+        var after = library.Messages([ana]).Single(m => m.Id == pdf.Id);
+        Assert.True(after.MediaDeleted);
+        Assert.Null(after.FileId);
+        Assert.False(File.Exists(pdf.FilePath));
+
+        // Compress chosen files whatever their standing, but never an important one.
+        var photo = messages.Single(m => m.AttachmentName == "photo-1.jpg");
+        var files = library.FilesOf([photo.Id]);
+        Assert.Equal(1, library.Reduce(me.Id, files, null, chosen: true).ToThumbnail);
+        Assert.Equal("thumbnail", library.Messages([ana]).Single(m => m.Id == photo.Id).Reduced);
+    }
+
+    [Fact]
     public void Chats_sharing_message_ids_stay_apart()
     {
         // A broadcast carries one message id into every chat it reaches.
