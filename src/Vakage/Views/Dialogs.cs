@@ -29,10 +29,11 @@ internal static class Dialogs
         return result?.Trim();
     }
 
-    public static async Task<bool> Confirm(Window owner, string title, string question, string confirmLabel)
+    public static async Task<bool> Confirm(Window owner, string title, string question, string confirmLabel, bool destructive = true)
     {
         var confirmed = false;
-        var window = Frame(title, question, null, out var ok, out var cancel, confirmLabel, ActionIcons.TrashCan, negative: true);
+        var window = Frame(title, question, null, out var ok, out var cancel, confirmLabel,
+            destructive ? ActionIcons.TrashCan : ActionIcons.FileImport, negative: destructive);
         ok.Click += (_, _) => { confirmed = true; window.Close(); };
         cancel.Click += (_, _) => window.Close();
         await window.ShowDialog(owner);

@@ -47,17 +47,21 @@ Imports copy, never move: the export is left as it was, to be deleted by its own
 
 `WhatsAppExport` opens a zip, a folder, or a bare `.txt` (with the files beside it), finds the chat text (`_chat.txt`, or the `WhatsApp Chat with …` / `Conversa do WhatsApp com …` file) and names the chat from the file or zip name.
 
+## Reading an iPhone's own database
+
+`WhatsAppIosDatabase` reads WhatsApp's shared container from an iPhone backup (`ChatStorage.sqlite`, `Message\Media`): `ZWACHATSESSION` (chats; type 0 a person, 1 a group, 3 a status feed, left out), `ZWAMESSAGE` (time in Core Data seconds since 2001 UTC, `ZISFROMME`, type, text), `ZWAMEDIAITEM` (local path under `Message`, title) and `ZWAGROUPMEMBER` (who wrote in a group). Types: 0 text, 1 image, 2 video, 3 voice note, 4 contact, 5 location, 6 group event, 7 link, 8 document (name in the text), 14 deleted, 15 sticker, 59 call; a photo's or video's caption is the media item's title. A chat is known by `ios:<JID>` in `chats.source_key`, so contacts saved under one name stay apart (their titles carry the number) and a later backup adds only what is new. A stored file takes the extension of WhatsApp's own file, never of a document's name. An encrypted backup is decrypted outside Vakage, with its password typed by its owner.
+
 ## Where it stands (2026-11-08)
 
-Version 0.1: accounts, import (window and `--import`), the conversation stream with photos inline, join and unjoin, the files list by size with the sender filter, delete with file clean-up, 14 tests. Installed in `C:\TKHN\Vakage`, in Nauarchos.
+Version 0.1: accounts, import of exports (window and `--import`) and of an iPhone's WhatsApp database (window and `--import-ios`), the conversation stream with photos inline, join and unjoin, the files list by size with the sender filter, delete with file clean-up, 14 tests. Installed in `C:\TKHN\Vakage`, in Nauarchos.
 
-The first real test was to be two of Tiago's chats (his father, a friend). No WhatsApp export of them was found on the workstation on 2026-11-08 (searched by file name, by the content of text files, and inside every zip). They will come from the phone.
+The first real test is two of Tiago's chats (his father, a friend), read from a full iPhone backup of 2026-11-08: about 36,000 messages and 2,000 files, the friend's chat joined from three numbers. No export of them existed on the workstation.
 
 This repository is public: real names, chats and libraries stay out of it. The private notes on the project are in the All My Projects row (see `documents/prompts/template.md`).
 
 ## Next
 
-1. Tiago exports those two chats from the phone (zip, with media) and they are imported into his account: the first real test. Fix whatever the real exports show.
+1. Tiago reads the two chats in the window and says what is wrong or missing; then the rest of the phone's chats.
 2. Search inside a conversation and across an account.
 3. Both sides of one conversation: Tiago's chat with his wife and hers with him, from two accounts, shown side by side or as one stream, without ever merging the accounts.
 4. Delete single files (and the messages' links to them) from the Files tab, with the bytes freed.

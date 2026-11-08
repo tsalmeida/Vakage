@@ -117,6 +117,11 @@ public sealed class ArchiveLibrary
             CREATE INDEX IF NOT EXISTS messages_file ON messages(file_id);
             CREATE INDEX IF NOT EXISTS chats_account ON chats(account_id);
             """);
+        // A chat read from a phone's own database is known by its WhatsApp id
+        // (the contact's JID), so two contacts saved under one name stay apart.
+        var chatColumns = Query(conn, "SELECT name FROM pragma_table_info('chats')", r => r.GetString(0));
+        if (!chatColumns.Contains("source_key"))
+            Exec(conn, "ALTER TABLE chats ADD COLUMN source_key TEXT");
     }
 
     // ----- Accounts -----
@@ -189,18 +194,33 @@ public sealed class ArchiveLibrary
     public ImportResult ImportWhatsApp(long accountId, string exportPath, string? titleOverride = null)
     {
         using var export = WhatsAppExport.Open(exportPath);
-        var messages = export.ReadMessages();
         var title = string.IsNullOrWhiteSpace(titleOverride) ? export.Title : titleOverride.Trim();
+        return ImportMessages(accountId, "whatsapp", sourceKey: null, title, export.ReadMessages(), export.OpenFile, export.SourcePath);
+    }
 
+    /// <summary>
+    /// Brings messages from any source into a chat of an account. The chat is
+    /// found by <paramref name="sourceKey"/> when the source has one (a phone's
+    /// own database), else by title; a chat already there takes only the
+    /// messages it does not hold yet. Each attached file is opened through
+    /// <paramref name="openFile"/> (by the message's attachment source) and
+    /// copied into the store.
+    /// </summary>
+    public ImportResult ImportMessages(long accountId, string source, string? sourceKey, string title,
+        IReadOnlyList<ParsedMessage> messages, Func<string, Stream?> openFile, string sourcePath)
+    {
         using var conn = Connect();
         using var tx = conn.BeginTransaction();
 
-        var chatIds = Query(conn, "SELECT id FROM chats WHERE account_id = $a AND source = 'whatsapp' AND title = $t",
-            r => r.GetInt64(0), ("$a", accountId), ("$t", title));
+        var chatIds = sourceKey is not null
+            ? Query(conn, "SELECT id FROM chats WHERE account_id = $a AND source = $s AND source_key = $k",
+                r => r.GetInt64(0), ("$a", accountId), ("$s", source), ("$k", sourceKey))
+            : Query(conn, "SELECT id FROM chats WHERE account_id = $a AND source = $s AND title = $t AND source_key IS NULL",
+                r => r.GetInt64(0), ("$a", accountId), ("$s", source), ("$t", title));
         var newChat = chatIds.Count == 0;
         var chatId = newChat
-            ? Scalar(conn, "INSERT INTO chats (account_id, source, title, created_at) VALUES ($a, 'whatsapp', $t, $n) RETURNING id",
-                ("$a", accountId), ("$t", title), ("$n", Now()))
+            ? Scalar(conn, "INSERT INTO chats (account_id, source, source_key, title, created_at) VALUES ($a, $s, $k, $t, $n) RETURNING id",
+                ("$a", accountId), ("$s", source), ("$k", (object?)sourceKey ?? DBNull.Value), ("$t", title), ("$n", Now()))
             : chatIds[0];
 
         // What the chat already holds, counted: a message repeated in the same
@@ -230,14 +250,14 @@ public sealed class ArchiveLibrary
             long? fileId = null;
             if (m.AttachmentName is { } name)
             {
-                using var stream = export.OpenFile(name);
+                using var stream = openFile(m.AttachmentSource ?? name);
                 if (stream is null)
                 {
                     missing++;
                 }
                 else
                 {
-                    var (id, isNew) = StoreFile(conn, stream, name);
+                    var (id, isNew) = StoreFile(conn, stream, name, m.AttachmentSource);
                     fileId = id;
                     if (isNew) stored++; else storedBefore++;
                 }
@@ -253,13 +273,46 @@ public sealed class ArchiveLibrary
         }
 
         Exec(conn, "INSERT INTO imports (chat_id, source_path, imported_at, messages_added) VALUES ($c, $p, $t, $n)",
-            ("$c", chatId), ("$p", export.SourcePath), ("$t", Now()), ("$n", added));
+            ("$c", chatId), ("$p", sourcePath), ("$t", Now()), ("$n", added));
         tx.Commit();
         return new ImportResult(chatId, title, newChat, added, skipped, stored, storedBefore, missing);
     }
 
+    /// <summary>
+    /// Brings chats from an iPhone's WhatsApp database (the shared container of
+    /// a decrypted backup) into an account. <paramref name="chatFilter"/> picks
+    /// chats by name or number (any chat whose name or number contains one of
+    /// the terms); with none, every chat comes in. Each chat is known by its
+    /// WhatsApp id, so contacts saved under one name stay apart, their titles
+    /// carrying the number, and a later backup adds only what is new.
+    /// </summary>
+    public IReadOnlyList<ImportResult> ImportWhatsAppIos(long accountId, string path, IReadOnlyList<string>? chatFilter = null,
+        Action<string>? progress = null)
+    {
+        var db = WhatsAppIosDatabase.Open(path);
+        var account = Accounts().First(a => a.Id == accountId);
+        var self = SelfNameFor(accountId) ?? account.Name;
+        if (account.SelfName is null) SetSelfName(accountId, self);
+
+        var chats = db.Chats();
+        var sharedNames = chats.GroupBy(c => c.Name).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
+        var picked = chatFilter is { Count: > 0 }
+            ? chats.Where(c => chatFilter.Any(f => c.Name.Contains(f, StringComparison.OrdinalIgnoreCase) || c.Number.Contains(f.TrimStart('+'), StringComparison.Ordinal))).ToList()
+            : chats.ToList();
+
+        var results = new List<ImportResult>();
+        foreach (var chat in picked)
+        {
+            var title = sharedNames.Contains(chat.Name) && !chat.IsGroup ? $"{chat.Name} (+{chat.Number})" : chat.Name;
+            progress?.Invoke($"{title}: {chat.MessageCount:N0} messages");
+            results.Add(ImportMessages(accountId, "whatsapp", "ios:" + chat.Jid, title,
+                db.ReadMessages(chat, self), db.OpenFile, db.Root));
+        }
+        return results;
+    }
+
     /// <summary>Hashes a file into the store; the same content already there is reused.</summary>
-    private (long Id, bool IsNew) StoreFile(SqliteConnection conn, Stream source, string name)
+    private (long Id, bool IsNew) StoreFile(SqliteConnection conn, Stream source, string name, string? storedAs = null)
     {
         Directory.CreateDirectory(FilesRoot);
         var temp = Path.Combine(FilesRoot, $".incoming-{Guid.NewGuid():N}");
@@ -284,7 +337,7 @@ public sealed class ArchiveLibrary
             var existing = Query(conn, "SELECT id FROM files WHERE sha256 = $h", r => r.GetInt64(0), ("$h", sha));
             if (existing.Count > 0) return (existing[0], false);
 
-            var ext = Path.GetExtension(name).ToLowerInvariant();
+            var ext = SafeExtension(storedAs) ?? SafeExtension(name) ?? "";
             var target = StorePath(sha, ext);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             if (!File.Exists(target)) File.Move(temp, target);
@@ -296,6 +349,19 @@ public sealed class ArchiveLibrary
         {
             if (File.Exists(temp)) File.Delete(temp);
         }
+    }
+
+    /// <summary>
+    /// The extension the stored file gets: letters and digits only. A
+    /// document's name ("notes. final?") is no safe source for a file name.
+    /// </summary>
+    private static string? SafeExtension(string? name)
+    {
+        if (name is null) return null;
+        var dot = name.LastIndexOf('.');
+        if (dot < 0 || dot == name.Length - 1) return null;
+        var ext = name[(dot + 1)..];
+        return ext.Length <= 8 && ext.All(char.IsAsciiLetterOrDigit) ? "." + ext.ToLowerInvariant() : null;
     }
 
     public string StorePath(string sha256, string ext) => Path.Combine(FilesRoot, sha256[..2], sha256 + ext);

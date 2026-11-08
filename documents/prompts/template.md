@@ -48,6 +48,8 @@ C:\TKHN\Vakage\Vakage.exe
 
 **Do not install to `%LOCALAPPDATA%\Programs\Vakage` or `L:\Apps`.** The office workstation's Defender ASR rule refuses a fresh unsigned exe there. `C:\TKHN` is the shared, Defender-excluded root for the companion family, catalogued in `L:\Sync\companion-family.json` (Vakage's entry: stone, `box-archive`), which is also what puts it in Nauarchos. Settings and the log stay in `%LOCALAPPDATA%\Vakage`; the library is wherever `LibraryPath` in its `settings.json` says (default `Documents\Vakage`).
 
+An iPhone's whole WhatsApp comes from its backup: the shared container `group.net.whatsapp.WhatsApp.shared` (`ChatStorage.sqlite`, `Message\Media`), read by `--import-ios`. An encrypted backup is decrypted outside Vakage, and its password is typed by Tiago into a window of its own, never into the conversation or a file. Decrypted phone data stays off `L:` (it is synced) until Tiago says where it lives.
+
 Check an import from a terminal before looking at the window, on a scratch library when testing:
 
 ```powershell

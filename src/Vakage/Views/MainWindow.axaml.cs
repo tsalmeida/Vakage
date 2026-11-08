@@ -161,6 +161,11 @@ public partial class MainWindow : Window
         var lines = new List<string>();
         foreach (var path in paths)
         {
+            if (WhatsAppIosDatabase.IsDatabase(path))
+            {
+                await ImportPhoneDatabase(account, path, lines);
+                continue;
+            }
             Status($"Importing {Path.GetFileName(path)} into {account.Name}…");
             try
             {
@@ -182,6 +187,32 @@ public partial class MainWindow : Window
         ReloadConversations();
         ReloadFiles();
         Status(string.Join("  ", lines));
+    }
+
+    /// <summary>
+    /// A folder holding an iPhone's WhatsApp database (ChatStorage.sqlite, from
+    /// a decrypted backup) brings in every chat on that phone, after asking.
+    /// </summary>
+    private async Task ImportPhoneDatabase(Account account, string path, List<string> lines)
+    {
+        try
+        {
+            var chats = WhatsAppIosDatabase.Open(path).Chats();
+            var ok = await Dialogs.Confirm(this, "Import a phone's WhatsApp",
+                $"This folder holds the WhatsApp database of a phone: {chats.Count:N0} chats, {chats.Sum(c => c.MessageCount):N0} messages. " +
+                $"Import all of them into {account.Name}'s archive? Chats already there take only what is new; files are copied, and the folder is left as it is. " +
+                "To bring in only some chats, use Vakage --import-ios with --chat.",
+                "Import all", destructive: false);
+            if (!ok) return;
+            var results = await Task.Run(() => _library.ImportWhatsAppIos(account.Id, path, null, line => Status($"Importing {line}…")));
+            lines.Add($"{results.Count} chats from the phone: {results.Sum(r => r.MessagesAdded):N0} messages added, " +
+                      $"{results.Sum(r => r.FilesStored):N0} files stored, {results.Sum(r => r.FilesMissing):N0} not in the backup.");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"Import of the phone database at {path} failed", ex);
+            lines.Add($"The phone's database was not imported: {ex.Message}");
+        }
     }
 
     // ----- Conversations -----

@@ -22,12 +22,14 @@ public enum MessageKind
 /// <param name="Sender">The name as the exporting phone saved it; null for a system line.</param>
 /// <param name="Body">The text, with the attachment marker removed (a caption, or empty).</param>
 /// <param name="AttachmentName">The file name the export refers to, when the message carried a file.</param>
+/// <param name="AttachmentSource">Where the source keeps that file, when it is not the name itself (a path inside a phone backup).</param>
 public sealed record ParsedMessage(
     DateTime SentAt,
     string? Sender,
     string Body,
     string? AttachmentName,
-    MessageKind Kind);
+    MessageKind Kind,
+    string? AttachmentSource = null);
 
 /// <summary>
 /// Reads the text file WhatsApp writes when a chat is exported, from Android

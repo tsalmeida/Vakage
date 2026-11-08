@@ -8,6 +8,7 @@ Stone icon (`#57534d`, Tailwind stone-600). A Tekhnexos companion app, C# and Av
 
 - **Accounts.** One account per person whose phone the exports come from (yours, your partner's), so two people's archives never mix. Switching accounts switches the whole window.
 - **Import** an exported chat: the `.zip` WhatsApp makes with *Export chat → Include media*, the folder it was unzipped into, or the chat's `.txt` alone. Android and iPhone exports, in English, Portuguese, Spanish, German, French, Italian and Dutch, 24-hour and AM/PM clocks. A later export of the same chat adds only the messages that are new.
+- **Import a whole phone** from an iPhone backup: WhatsApp's own database (`ChatStorage.sqlite` and its `Message\Media`), with every chat, exact times, documents under their real names and every file the phone downloaded. Contacts saved under one name stay apart, and a later backup adds only what is new. See *From an iPhone backup* below.
 - **Read** a conversation as a stream: your messages on the right, everyone else's on the left, photos shown inline, every other file one click away.
 - **Join** chats into one conversation: a contact's old number and new number, read as one continuous stream as it never was in WhatsApp. Unjoin parts them again. Chats of different accounts are never joined.
 - **Files**: every file in an account, largest first, filtered by who sent it (or by everyone but that person).
@@ -28,6 +29,16 @@ Stone icon (`#57534d`, Tailwind stone-600). A Tekhnexos companion app, C# and Av
 
 Then **Import** in Vakage, into the account of the phone it came from. The export itself is never changed; once you are happy with the import you can delete it, and the chat on the phone.
 
+## From an iPhone backup
+
+An iPhone backup made by Apple Devices, Finder or iTunes holds WhatsApp's whole database. Vakage reads it once it is out of the backup: the folder `group.net.whatsapp.WhatsApp.shared` (WhatsApp's shared container, holding `ChatStorage.sqlite` and `Message`). An encrypted backup has to be decrypted first, with its password, by a tool such as [iphone_backup_decrypt](https://github.com/jsharkey13/iphone_backup_decrypt) (domain `AppDomainGroup-group.net.whatsapp.WhatsApp.shared`). Then **Import folder** on that folder imports every chat, after asking, or from a terminal:
+
+```powershell
+Vakage --import-ios "<…>\group.net.whatsapp.WhatsApp.shared" --account Tiago --chat "Ana,+5511"   # only the chats whose name or number match
+```
+
+Times are WhatsApp's own (UTC), shown in the computer's time zone. Media the phone never downloaded is not in the backup, and shows as a file left out.
+
 ## Where things are
 
 The library is a folder (by default `Documents\Vakage`; set `LibraryPath` in `%LOCALAPPDATA%\Vakage\settings.json` to move it):
@@ -42,6 +53,8 @@ Vakage\
 
 ```powershell
 Vakage --import "WhatsApp Chat - Ana.zip" --account Tiago [--title "Ana"] [--me "Tiago"]
+Vakage --import-ios <WhatsApp shared container> --account Tiago [--chat <name or number>,…]
+Vakage --join 4,2,1 --title "Ana"                 # chat ids, as --list shows them
 Vakage --list [--account Tiago]
 Vakage --files --account Tiago [--sender Ana] [--top 50]
 ```
