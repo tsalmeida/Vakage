@@ -468,33 +468,50 @@ public sealed class WhatsAppIosDatabase
 
     /// <summary>
     /// The name a person gave themselves, as a group message carries it. On
-    /// WhatsApp's anonymous ids (@lid) it is stored as "+" and a base64
-    /// protocol buffer whose field 1 is the name (empty when they set none),
-    /// which otherwise reads like a code. Marked with "~", as WhatsApp marks a
-    /// name the person chose rather than one saved in the address book.
+    /// newer WhatsApp it is often stored as base64 of a small protocol buffer
+    /// (with or without a leading "+"), which reads like a code and is
+    /// different on every message, since it carries a timestamp. The name is
+    /// its text field when there is one; when there is none, null, and the
+    /// caller falls back to the address book or the number. A plain name is
+    /// marked "~", as WhatsApp marks a name the person chose rather than one
+    /// saved in the address book.
     /// </summary>
     public static string? PushName(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
-        if (raw.StartsWith('+') && raw.Length > 4 && !raw[1..].All(char.IsDigit))
+        var body = raw.StartsWith('+') ? raw[1..] : raw;
+        if (body.Length > 0 && body.All(char.IsDigit)) return raw; // a phone number
+        if (IsEncodedProfile(body, out var bytes))
         {
-            try
+            var i = 0;
+            while (i < bytes.Length)
             {
-                var bytes = Convert.FromBase64String(raw[1..]);
-                if (bytes.Length >= 2 && bytes[0] == 0x0a)
+                var key = bytes[i++];
+                int field = key >> 3, wire = key & 7;
+                if (wire == 0) { while (i < bytes.Length && bytes[i++] >= 0x80) { } continue; }
+                if (wire != 2 || i >= bytes.Length) break;
+                var length = bytes[i++];
+                if (i + length > bytes.Length) break;
+                if (field == 1 && length > 0)
                 {
-                    var length = bytes[1];
-                    if (length == 0 || 2 + length > bytes.Length) return null;
-                    var name = System.Text.Encoding.UTF8.GetString(bytes, 2, length).Trim();
-                    return name.Length == 0 ? null : "~ " + name;
+                    var name = System.Text.Encoding.UTF8.GetString(bytes, i, length).Trim();
+                    if (name.Length > 0 && !name.Any(char.IsControl)) return "~ " + name;
                 }
-                return null;
+                i += length;
             }
-            catch (FormatException)
-            {
-                return raw;
-            }
+            return null;
         }
         return raw.StartsWith('+') ? raw : "~ " + raw.Trim();
+    }
+
+    /// <summary>A sender field that is base64 of a protocol buffer rather than a name.</summary>
+    public static bool IsEncodedProfile(string text, out byte[] bytes)
+    {
+        bytes = [];
+        var body = text.StartsWith('+') ? text[1..] : text;
+        if (body.Length < 8 || body.Length % 4 != 0 || body.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '='))) return false;
+        try { bytes = Convert.FromBase64String(body); }
+        catch (FormatException) { return false; }
+        return bytes.Length >= 2 && (bytes[0] == 0x08 || bytes[0] == 0x0a);
     }
 }

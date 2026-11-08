@@ -42,6 +42,8 @@ public class RulesTests
     [InlineData("+CgAQpLic1AY=", null)]
     [InlineData("Douglas", "~ Douglas")]
     [InlineData("+5561999990000", "+5561999990000")]
+    [InlineData("CJvT/qcGIABIAQ==", null)]
+    [InlineData("CIKmhJoGIAA=", null)]
     public void Decodes_the_names_people_gave_themselves(string raw, string? name)
         => Assert.Equal(name, Vakage.Core.Sources.WhatsApp.WhatsAppIosDatabase.PushName(raw));
 }

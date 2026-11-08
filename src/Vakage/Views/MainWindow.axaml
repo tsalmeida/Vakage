@@ -157,7 +157,8 @@
             <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8">
               <ComboBox x:Name="WithBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4"
                         ToolTip.Tip="Files exchanged with one person (all their chat histories) or in one group" />
-              <ComboBox x:Name="TypeBox" MinWidth="140" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
+              <ComboBox x:Name="TypeBox" MinWidth="140" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4" />
+              <ComboBox x:Name="OrderBox" MinWidth="160" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
               <ComboBox x:Name="SenderModeBox" MinWidth="150" SelectionChanged="OnFilesFilterChanged" Margin="0,4,8,4" />
               <ComboBox x:Name="SenderBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" Margin="0,4,16,4" />
               <Button Classes="pill lime" x:Name="MarkImportantButton" Click="OnMarkClick" Tag="important" IsEnabled="False" Margin="0,4,8,4"

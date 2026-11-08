@@ -225,7 +225,11 @@ public sealed partial class ArchiveLibrary
     public IReadOnlyList<Account> Accounts()
     {
         using var conn = Connect();
-        return Query(conn, "SELECT id, name, self_name FROM accounts ORDER BY name COLLATE NOCASE",
+        // The account with the latest message first, as Tekhnexos orders everything.
+        return Query(conn, """
+            SELECT a.id, a.name, a.self_name FROM accounts a
+            ORDER BY (SELECT max(coalesce(m.sent_utc, m.sent_at)) FROM messages m JOIN chats c ON c.id = m.chat_id WHERE c.account_id = a.id) DESC, a.created_at DESC
+            """,
             r => new Account(r.GetInt64(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2)));
     }
 
@@ -268,14 +272,14 @@ public sealed partial class ArchiveLibrary
         return found.Count > 0 ? found[0] : null;
     }
 
-    /// <summary>Everyone who wrote in the account's chats, most active first.</summary>
+    /// <summary>Everyone who wrote in the account's chats, whoever wrote last first.</summary>
     public IReadOnlyList<string> Senders(long accountId)
     {
         using var conn = Connect();
         return Query(conn, """
             SELECT m.sender FROM messages m JOIN chats c ON c.id = m.chat_id
             WHERE c.account_id = $a AND m.sender IS NOT NULL
-            GROUP BY m.sender ORDER BY count(*) DESC
+            GROUP BY m.sender ORDER BY max(coalesce(m.sent_utc, m.sent_at)) DESC
             """, r => r.GetString(0), ("$a", accountId));
     }
 
@@ -546,10 +550,10 @@ public sealed partial class ArchiveLibrary
         using var tx = conn.BeginTransaction();
         foreach (var (sender, key, count) in senders)
         {
-            var looksBare = sender.StartsWith('+');
+            var looksBare = sender.StartsWith('+') || WhatsAppIosDatabase.IsEncodedProfile(sender, out _);
             var better = names.GetValueOrDefault(key)
                          ?? (looksBare ? WhatsAppIosDatabase.PushName(sender) : null)
-                         ?? (looksBare && !sender[1..].All(char.IsDigit) ? "+" + key.Split('@')[0] : null);
+                         ?? (looksBare && !sender.TrimStart('+').All(char.IsDigit) ? "+" + key.Split('@')[0] : null);
             // A name already there stays unless the address book has one for that id.
             if (better is null || better == sender || (!looksBare && (better.StartsWith('~') || !names.ContainsKey(key)))) continue;
             renamed += count;

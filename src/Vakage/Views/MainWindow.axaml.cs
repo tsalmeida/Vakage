@@ -31,18 +31,21 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        ConversationList.ItemTemplate = new FuncDataTemplate<Conversation>((c, _) => ConversationRow(c));
+        // Virtualised lists hand a template a null item while recycling a row: build an empty one then.
+        ConversationList.ItemTemplate = new FuncDataTemplate<Conversation?>((c, _) => c is null ? new Panel() : ConversationRow(c));
         MessageList.ItemTemplate = new FuncDataTemplate<object>((row, _) => row switch
         {
             DayRow d => DayLine(d),
             StoredMessage m => Bubble(m),
             _ => new TextBlock(),
         });
-        FileList.ItemTemplate = new FuncDataTemplate<StoredFile>((f, _) => FileRow(f));
+        FileList.ItemTemplate = new FuncDataTemplate<StoredFile?>((f, _) => f is null ? new Panel() : FileRow(f));
         SenderModeBox.ItemsSource = new[] { "Sent by", "Not sent by" };
         SenderModeBox.SelectedIndex = 0;
         TypeBox.ItemsSource = FileTypes.Select(t => t.Label).ToList();
         TypeBox.SelectedIndex = 0;
+        OrderBox.ItemsSource = FileOrders.Select(o => o.Label).ToList();
+        OrderBox.SelectedIndex = 0;
         MessageList.ContextMenu = MessageMenu();
 
         try
@@ -528,6 +531,14 @@ public partial class MainWindow : Window
         public override string ToString() => Label;
     }
 
+    private static readonly (string Label, FileOrder Order)[] FileOrders =
+    [
+        ("Most recent first", FileOrder.Recent),
+        ("Largest first", FileOrder.Largest),
+        ("Smallest first", FileOrder.Smallest),
+        ("Oldest first", FileOrder.Oldest),
+    ];
+
     private static readonly (string Label, string[] Types)[] FileTypes =
     [
         ("All kinds", []),
@@ -543,7 +554,8 @@ public partial class MainWindow : Window
         _loading = true;
         var previous = (WithBox.SelectedItem as WithChoice)?.ChatIds;
         var choices = new List<WithChoice> { new("With anyone", []) };
-        choices.AddRange(conversations.OrderBy(c => c.Title, StringComparer.CurrentCultureIgnoreCase).Select(c => new WithChoice(c.Title, c.ChatIds)));
+        // The person or group with the latest message first, as Tekhnexos orders everything.
+        choices.AddRange(conversations.OrderByDescending(c => c.Last ?? DateTime.MinValue).Select(c => new WithChoice(c.Title, c.ChatIds)));
         WithBox.ItemsSource = choices;
         WithBox.SelectedItem = previous is null ? choices[0] : choices.FirstOrDefault(c => c.ChatIds.SequenceEqual(previous)) ?? choices[0];
         _loading = false;
@@ -575,7 +587,8 @@ public partial class MainWindow : Window
         var exclude = SenderModeBox.SelectedIndex == 1;
         var with = WithBox.SelectedItem as WithChoice;
         var types = FileTypes[Math.Max(0, TypeBox.SelectedIndex)].Types;
-        var files = _library.Files(_account.Id, person, exclude, _fileList, with?.ChatIds, types);
+        var order = FileOrders[Math.Max(0, OrderBox.SelectedIndex)].Order;
+        var files = _library.Files(_account.Id, person, exclude, _fileList, with?.ChatIds, types, order);
         FileList.ItemsSource = files;
         var whole = files.Where(f => f.Reduced is null).ToList();
         var list = _fileList switch
@@ -679,6 +692,10 @@ public partial class MainWindow : Window
     }
 
     private void Status(string text) => Dispatcher.UIThread.Post(() => StatusLine.Text = text);
+
+    /// <summary>Shown when something in the window failed; the details are in the log.</summary>
+    public void ShowError(Exception ex) =>
+        Status($"Something went wrong ({ex.GetType().Name}: {ex.Message}). Vakage carried on; the details are in {Path.Combine(AppPaths.UserDataDirectory, "vakage.log")}.");
 
     // ----- Rows -----
 

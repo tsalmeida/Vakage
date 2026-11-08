@@ -13,6 +13,15 @@ public enum FileList
     Documents,
 }
 
+/// <summary>How a list of files is ordered; the most recent first unless asked otherwise, as everywhere in Tekhnexos.</summary>
+public enum FileOrder
+{
+    Recent,
+    Largest,
+    Smallest,
+    Oldest,
+}
+
 /// <summary>What the messages and the file itself say about a file: what the suggestion rules weigh.</summary>
 public sealed record FileFacts(
     string Media,
@@ -97,7 +106,7 @@ public sealed partial class ArchiveLibrary
     /// <paramref name="list"/> keeps one standing.
     /// </summary>
     public IReadOnlyList<StoredFile> Files(long accountId, string? sender = null, bool excludeSender = false, FileList list = FileList.All,
-        IReadOnlyList<long>? chatIds = null, IReadOnlyList<string>? mediaTypes = null)
+        IReadOnlyList<long>? chatIds = null, IReadOnlyList<string>? mediaTypes = null, FileOrder order = FileOrder.Largest)
     {
         using var conn = Connect();
         var filter = sender is null ? "" : excludeSender
@@ -124,7 +133,13 @@ public sealed partial class ArchiveLibrary
                    ifnull(max(m.media_type), 'document'), f.mark, f.suggestion, f.suggestion_reason, f.reduced, f.thumb, f.text
             FROM files f JOIN messages m ON m.file_id = f.id JOIN chats c ON c.id = m.chat_id
             WHERE c.account_id = $a {filter}
-            GROUP BY f.id ORDER BY (f.reduced IS NULL) DESC, f.size DESC, f.id
+            GROUP BY f.id ORDER BY {order switch
+            {
+                FileOrder.Recent => "max(coalesce(m.sent_utc, m.sent_at)) DESC",
+                FileOrder.Oldest => "min(coalesce(m.sent_utc, m.sent_at))",
+                FileOrder.Smallest => "f.size",
+                _ => "f.size DESC",
+            }}, f.id
             """,
             r => new StoredFile(r.GetInt64(0), r.GetString(1), r.GetInt64(2), r.GetString(3), StorePath(r.GetString(1), r.GetString(4)),
                 (r.IsDBNull(5) ? "" : r.GetString(5)).Replace(",", ", "), (r.IsDBNull(6) ? "" : r.GetString(6)).Replace(",", ", "),
