@@ -191,7 +191,7 @@ public partial class MainWindow : Window
         var conversations = _account is null ? [] : _library.Conversations(_account.Id);
         ConversationList.ItemsSource = conversations;
         ConversationsCaption.Text = _account is null
-            ? "Add an account with New account, then import its exported chats."
+            ? "Start with a new account (the person button beside Account), one per person whose phone the exports come from. Then import its exported chats."
             : conversations.Count == 0
                 ? $"No chats in {_account.Name} yet. Export a chat on the phone (Export chat, Include media) and import the zip."
                 : $"{conversations.Count} in {_account.Name}. Ctrl+click to select several, to join or delete them.";
