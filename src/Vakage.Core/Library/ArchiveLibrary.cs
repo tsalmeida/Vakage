@@ -75,8 +75,13 @@ public sealed partial class ArchiveLibrary
             DataSource = DatabasePath,
             Pooling = false,
             ForeignKeys = true,
+            DefaultTimeout = 120,
         }.ToString());
         conn.Open();
+        // Another Vakage (a reading run, the window) may be writing: wait for it rather than fail.
+        using var wait = conn.CreateCommand();
+        wait.CommandText = "PRAGMA busy_timeout = 60000";
+        wait.ExecuteNonQuery();
         return conn;
     }
 
@@ -192,6 +197,7 @@ public sealed partial class ArchiveLibrary
             );
             """);
         Exec(conn, "CREATE INDEX IF NOT EXISTS messages_source ON messages(chat_id, source_id)");
+        Exec(conn, "CREATE INDEX IF NOT EXISTS messages_sender ON messages(sender_key, sender)");
     }
 
     private static void AddColumns(SqliteConnection conn, string table, params (string Name, string Type)[] columns)
@@ -492,7 +498,55 @@ public sealed partial class ArchiveLibrary
         progress?.Invoke("People, profile pictures and calls");
         SavePeople(accountId, db.People());
         SaveCalls(accountId, db.Calls());
+        NameGroupSenders(accountId);
         return results;
+    }
+
+    /// <summary>
+    /// Puts a name on every group message whose sender was only a number or a
+    /// code: the name saved in the address book for that WhatsApp id (or its
+    /// anonymous @lid twin), else the name the person gave themselves ("~ name",
+    /// decoded when WhatsApp stored it encoded), else the number. Returns the
+    /// messages renamed. Run after every import; one-to-one chats already
+    /// carry the contact's name.
+    /// </summary>
+    public int NameGroupSenders(long accountId)
+    {
+        using var conn = Connect();
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, name, push, lid) in Query(conn, "SELECT key, name, push_name, lid FROM people WHERE account_id = $a",
+                     r => (r.GetString(0), r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3)),
+                     ("$a", accountId)))
+        {
+            var shown = !string.IsNullOrWhiteSpace(name) ? name.Trim() : !string.IsNullOrWhiteSpace(push) ? "~ " + push.Trim() : null;
+            if (shown is null) continue;
+            // An address-book name beats a self-chosen one wherever both reach the same id.
+            if (!names.TryGetValue(key, out var had) || had.StartsWith('~')) names[key] = shown;
+            if (lid is not null && (!names.TryGetValue(lid, out had) || had.StartsWith('~'))) names[lid] = shown;
+        }
+        var senders = Query(conn, """
+            SELECT m.sender, m.sender_key, count(*) FROM messages m JOIN chats c ON c.id = m.chat_id
+            WHERE c.account_id = $a AND c.kind = 'group' AND m.sender_key IS NOT NULL AND m.sender_key <> 'me' AND m.sender IS NOT NULL
+            GROUP BY m.sender, m.sender_key
+            """, r => (Sender: r.GetString(0), Key: r.GetString(1), Count: r.GetInt32(2)), ("$a", accountId));
+        var renamed = 0;
+        using var tx = conn.BeginTransaction();
+        foreach (var (sender, key, count) in senders)
+        {
+            var looksBare = sender.StartsWith('+');
+            var better = names.GetValueOrDefault(key)
+                         ?? (looksBare ? WhatsAppIosDatabase.PushName(sender) : null)
+                         ?? (looksBare && !sender[1..].All(char.IsDigit) ? "+" + key.Split('@')[0] : null);
+            // A name already there stays unless the address book has one for that id.
+            if (better is null || better == sender || (!looksBare && (better.StartsWith('~') || !names.ContainsKey(key)))) continue;
+            renamed += count;
+            Exec(conn, """
+                UPDATE messages SET sender = $n WHERE sender_key = $k AND sender = $s
+                  AND chat_id IN (SELECT id FROM chats WHERE account_id = $a AND kind = 'group')
+                """, ("$n", better), ("$s", sender), ("$k", key), ("$a", accountId));
+        }
+        tx.Commit();
+        return renamed;
     }
 
     private HashSet<string> ExcludedKeys(long accountId)

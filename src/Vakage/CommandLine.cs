@@ -22,7 +22,7 @@ namespace Vakage;
 internal static class CommandLine
 {
     public static bool Requested(string[] args)
-        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--suggest" or "--mark" or "--reduce" or "--delete" or "--read-text" or "--noisy" or "--group-same-names" or "--help" or "-h");
+        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--suggest" or "--mark" or "--reduce" or "--delete" or "--read-text" or "--noisy" or "--group-same-names" or "--name-senders" or "--help" or "-h");
 
     public static int Run(string[] args)
     {
@@ -60,6 +60,12 @@ internal static class CommandLine
                 return Noisy(library, noisy, options);
             if (options.Has("--group-same-names"))
                 return GroupSameNames(library, options);
+            if (options.Has("--name-senders"))
+            {
+                var account = FindAccount(library, options, "--name-senders");
+                Console.WriteLine($"{library.NameGroupSenders(account.Id):N0} group messages now carry their sender's name.");
+                return 0;
+            }
             return List(library, options);
         }
         catch (Exception ex)
@@ -84,6 +90,7 @@ internal static class CommandLine
         Vakage --read-text --account <name> [--chat <id>[,…]] [--jobs 6]   (read the words in pictures and PDFs, with Eidokanon)
         Vakage --noisy <chat id>[,…] [--off]       (a chat of daily forwards: prune its files hard)
         Vakage --group-same-names --account <name> (tie together one person's chats under different numbers)
+        Vakage --name-senders --account <name>     (name group senders shown as a number or a code)
         Any command: --library <folder> (default: the library in settings)
         """;
 

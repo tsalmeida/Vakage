@@ -35,4 +35,13 @@ public class RulesTests
         // Outside a noisy chat the same meme in a close chat is still kept for the person to judge.
         Assert.Equal("important", ArchiveLibrary.SuggestFor(meme with { NoisyFromOthers = false }).Standing);
     }
+
+    [Theory]
+    [InlineData("+CgRDR0FDELDTrswG", "~ CGAC")]
+    [InlineData("+CgtDRyBTYW50aWFnbxDo+K7MBg==", "~ CG Santiago")]
+    [InlineData("+CgAQpLic1AY=", null)]
+    [InlineData("Douglas", "~ Douglas")]
+    [InlineData("+5561999990000", "+5561999990000")]
+    public void Decodes_the_names_people_gave_themselves(string raw, string? name)
+        => Assert.Equal(name, Vakage.Core.Sources.WhatsApp.WhatsAppIosDatabase.PushName(raw));
 }

@@ -150,7 +150,7 @@ public sealed class WhatsAppIosDatabase
             var sender = fromMe
                 ? selfName
                 : chat.IsGroup
-                    ? Str(r, 6) ?? Str(r, 7) ?? Str(r, 5) ?? Number(Str(r, 8) ?? Str(r, 4)) ?? "Unknown"
+                    ? Str(r, 6) ?? Str(r, 7) ?? PushName(Str(r, 5)) ?? Number(Str(r, 8) ?? Str(r, 4)) ?? "Unknown"
                     : chat.Name;
             var mediaPath = Str(r, 9);
             var title = Str(r, 10);
@@ -465,4 +465,36 @@ public sealed class WhatsAppIosDatabase
     private static string? Str(SqliteDataReader r, int i) => r.IsDBNull(i) || r.GetString(i).Length == 0 ? null : r.GetString(i);
 
     private static string? Number(string? jid) => jid is null ? null : "+" + jid.Split('@')[0];
+
+    /// <summary>
+    /// The name a person gave themselves, as a group message carries it. On
+    /// WhatsApp's anonymous ids (@lid) it is stored as "+" and a base64
+    /// protocol buffer whose field 1 is the name (empty when they set none),
+    /// which otherwise reads like a code. Marked with "~", as WhatsApp marks a
+    /// name the person chose rather than one saved in the address book.
+    /// </summary>
+    public static string? PushName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (raw.StartsWith('+') && raw.Length > 4 && !raw[1..].All(char.IsDigit))
+        {
+            try
+            {
+                var bytes = Convert.FromBase64String(raw[1..]);
+                if (bytes.Length >= 2 && bytes[0] == 0x0a)
+                {
+                    var length = bytes[1];
+                    if (length == 0 || 2 + length > bytes.Length) return null;
+                    var name = System.Text.Encoding.UTF8.GetString(bytes, 2, length).Trim();
+                    return name.Length == 0 ? null : "~ " + name;
+                }
+                return null;
+            }
+            catch (FormatException)
+            {
+                return raw;
+            }
+        }
+        return raw.StartsWith('+') ? raw : "~ " + raw.Trim();
+    }
 }
