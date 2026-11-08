@@ -1,0 +1,45 @@
+# ---- .NET build output ----
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+*.user
+*.suo
+*.userprefs
+
+# ---- Tooling / caches ----
+.vs/
+.idea/
+.vscode/
+.claude/
+*.binlog
+TestResults/
+coverage*.xml
+coverage*.json
+
+# ---- Editors / OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Never commit anyone's conversations ----
+# A library (vakage.sqlite and its files/ store) or a WhatsApp export must
+# never end up in this public repository. Tests build their exports in code.
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-wal
+*.sqlite-shm
+_chat.txt
+WhatsApp Chat*
+Conversa do WhatsApp*
+*.zip
+/files/
+
+# ---- Local prompt logs ----
+/documents/prompts/*
+!/documents/prompts/template.md
+
+# ---- Local editor / workspace settings ----
+logarktos.lua

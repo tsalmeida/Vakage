@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Tekhnexos mark, stone field (Tailwind stone-600 #57534d) for Vakage. -->
+  <rect width="100" height="100" fill="#57534d" />
+  <path d="M25 50 L75 50" stroke="white" stroke-width="6" />
+  <path d="M50 25 L50 75" stroke="white" stroke-width="6" />
+  <path d="M25 25 L75 25" stroke="white" stroke-width="6" />
+  <path d="M25 75 L75 75" stroke="white" stroke-width="6" />
+  <path d="M25 50 L50 25" stroke="white" stroke-width="6" />
+  <path d="M50 75 L75 50" stroke="white" stroke-width="6" />
+</svg>

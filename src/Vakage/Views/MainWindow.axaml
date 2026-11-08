@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:design="clr-namespace:Vakage.Design"
+        x:Class="Vakage.Views.MainWindow"
+        Title="Vakage"
+        Width="1280" Height="820"
+        MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Icon="avares://Vakage/Assets/app.ico">
+
+  <Border Classes="page">
+    <DockPanel LastChildFill="True">
+
+      <!-- Whose archive, and bringing exports in. -->
+      <Border Classes="section bar" DockPanel.Dock="Top" Margin="12,12,12,0">
+        <DockPanel LastChildFill="True">
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+            <Button Classes="pill indigo active" x:Name="ConversationsTab" Click="OnConversationsTabClick">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Comments}" Text="Conversations" Hue="indigo" />
+            </Button>
+            <Button Classes="pill amber" x:Name="FilesTab" Click="OnFilesTabClick">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Paperclip}" Text="Files" Hue="amber" />
+            </Button>
+            <Button Classes="pill amber" Click="OnLibraryFolderClick" ToolTip.Tip="Open the library folder">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.BoxArchive}" Hue="amber" />
+            </Button>
+          </StackPanel>
+          <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Classes="title" Text="Vakage" VerticalAlignment="Center" Margin="4,0,20,0" />
+            <TextBlock Classes="caption" Text="Account" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="AccountBox" MinWidth="180" VerticalAlignment="Center" SelectionChanged="OnAccountChanged" Margin="0,4,8,4" />
+            <Button Classes="pill lime" Click="OnNewAccountClick" Margin="0,4,8,4" ToolTip.Tip="New account: a person whose phone exports come from">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.UserPlus}" Hue="lime" />
+            </Button>
+            <Button Classes="pill lime" x:Name="ImportFileButton" Click="OnImportFileClick" Margin="0,4,8,4" ToolTip.Tip="Import one or more exported chats (.zip or .txt) into this account">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FileImport}" Text="Import" Hue="lime" />
+            </Button>
+            <Button Classes="pill lime" x:Name="ImportFolderButton" Click="OnImportFolderClick" Margin="0,4,0,4" ToolTip.Tip="Import an export that was already unzipped into a folder">
+              <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FolderOpen}" Text="Import folder" Hue="lime" />
+            </Button>
+          </WrapPanel>
+        </DockPanel>
+      </Border>
+
+      <Border Classes="section" DockPanel.Dock="Bottom" Margin="12">
+        <SelectableTextBlock Classes="caption" x:Name="StatusLine" TextWrapping="Wrap" />
+      </Border>
+
+      <Panel Margin="12,12,12,0">
+
+        <!-- Conversations: the list, and the stream of the one chosen. -->
+        <Grid x:Name="ConversationsPanel" ColumnDefinitions="380,12,*">
+          <Border Classes="section" Grid.Column="0" Padding="0">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Top" Margin="16,16,16,8" Spacing="2">
+                <TextBlock Classes="heading" Text="Conversations" />
+                <TextBlock Classes="caption" x:Name="ConversationsCaption" TextWrapping="Wrap" />
+              </StackPanel>
+              <ListBox x:Name="ConversationList" SelectionMode="Multiple" Margin="8,0,8,8"
+                       SelectionChanged="OnConversationSelectionChanged" />
+            </DockPanel>
+          </Border>
+
+          <Border Classes="section" Grid.Column="2" Padding="0">
+            <DockPanel>
+              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="16,16,16,8">
+                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Classes="heading" x:Name="ChatTitle" TextWrapping="Wrap" />
+                  <TextBlock Classes="caption" x:Name="ChatCaption" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <TextBlock Classes="caption" Text="You are" VerticalAlignment="Center" />
+                  <ComboBox x:Name="SelfBox" MinWidth="160" VerticalAlignment="Center" SelectionChanged="OnSelfChanged"
+                            ToolTip.Tip="Your name as this account's exports write it; your messages sit on the right" />
+                  <Button Classes="pill blue" x:Name="JoinButton" Click="OnJoinClick" IsEnabled="False"
+                          ToolTip.Tip="Read the selected chats as one conversation (Ctrl+click to select several)">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Link}" Text="Join" Hue="blue" />
+                  </Button>
+                  <Button Classes="pill blue" x:Name="UnjoinButton" Click="OnUnjoinClick" IsEnabled="False"
+                          ToolTip.Tip="Part a joined conversation into its chats again">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.LinkSlash}" Text="Unjoin" Hue="blue" />
+                  </Button>
+                  <Button Classes="pill orange" x:Name="DeleteButton" Click="OnDeleteClick" IsEnabled="False"
+                          ToolTip.Tip="Delete the selected conversations and the files nothing else uses">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.TrashCan}" Text="Delete" Hue="orange" />
+                  </Button>
+                </StackPanel>
+              </Grid>
+              <ListBox x:Name="MessageList" Margin="8,0,8,8" SelectionMode="Single" />
+            </DockPanel>
+          </Border>
+        </Grid>
+
+        <!-- Files: every stored file of the account, largest first. -->
+        <Border x:Name="FilesPanel" Classes="section" Padding="0" IsVisible="False">
+          <DockPanel>
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="16,16,16,8">
+              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Classes="heading" Text="Files" />
+                <TextBlock Classes="caption" x:Name="FilesCaption" TextWrapping="Wrap" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ComboBox x:Name="SenderModeBox" MinWidth="150" SelectionChanged="OnFilesFilterChanged" />
+                <ComboBox x:Name="SenderBox" MinWidth="220" SelectionChanged="OnFilesFilterChanged" />
+                <Button Classes="pill amber" x:Name="OpenFileButton" Click="OnOpenFileClick" IsEnabled="False">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FolderOpen}" Text="Open" Hue="amber" />
+                </Button>
+              </StackPanel>
+            </Grid>
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="110,*,240,280,110" Margin="24,0,24,4">
+              <TextBlock Grid.Column="0" Classes="columnheader" Text="Size" />
+              <TextBlock Grid.Column="1" Classes="columnheader" Text="File" />
+              <TextBlock Grid.Column="2" Classes="columnheader" Text="Sent by" />
+              <TextBlock Grid.Column="3" Classes="columnheader" Text="In" />
+              <TextBlock Grid.Column="4" Classes="columnheader" Text="First sent" />
+            </Grid>
+            <ListBox x:Name="FileList" Margin="8,0,8,8" SelectionMode="Single"
+                     SelectionChanged="OnFileSelectionChanged" DoubleTapped="OnFileDoubleTapped" />
+          </DockPanel>
+        </Border>
+
+      </Panel>
+    </DockPanel>
+  </Border>
+</Window>

@@ -1,0 +1,837 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    The Tekhnexos look, for Avalonia. See documents/companion-design-standard.md
+    in the Tekhnexos repository. This file is the reference implementation: the
+    companion apps copy it whole and change nothing in it.
+
+    Page: white sections with a 2 px light-grey border on a lighter-grey page.
+    Type: Roboto; Slab for titles; Condensed where room is short; 12 px floor.
+    Pills: grey at rest, light up in their colour on hover, fill in when active.
+    Lime is positive, orange is negative, nothing else is.
+
+    ===== The area accent =====
+
+    Three things belong to the app rather than to the standard: the focus ring on
+    an input, the colour of a text link, and the fill of a selected row. They all
+    read TkxAccent (the 500 step), TkxAccentHover (100 light / 950 dark) and
+    TkxAccentActive (50 light / 950 dark), which default to indigo here.
+
+    An app whose area is another hue overrides those three keys in its own
+    App.axaml and leaves this file alone:
+
+      <Application.Resources>
+        <ResourceDictionary>
+          <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Light">
+              <SolidColorBrush x:Key="TkxAccentHover" Color="#d0fae5" />
+              <SolidColorBrush x:Key="TkxAccentActive" Color="#ecfdf5" />
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Dark">
+              <SolidColorBrush x:Key="TkxAccentHover" Color="#002c22" />
+              <SolidColorBrush x:Key="TkxAccentActive" Color="#002c22" />
+            </ResourceDictionary>
+          </ResourceDictionary.ThemeDictionaries>
+          <SolidColorBrush x:Key="TkxAccent" Color="#00bc7d" />
+        </ResourceDictionary>
+      </Application.Resources>
+
+    Application.Resources is looked up before the resources of an included style,
+    so the three keys above win over the indigo defaults below. The hue's own
+    Tkx<Hue>Hover / Tkx<Hue>Active values are listed here already; copy them.
+  -->
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="TkxPage" Color="#fafafa" />
+          <SolidColorBrush x:Key="TkxSection" Color="#ffffff" />
+          <SolidColorBrush x:Key="TkxBorder" Color="#f2f2f2" />
+          <SolidColorBrush x:Key="TkxText" Color="#1e1e22" />
+          <SolidColorBrush x:Key="TkxVeil" Color="#99fafafa" />
+
+          <!-- A control with no colour of its own still has to answer the
+               pointer; it does that in grey, which is not a meaning hue. -->
+          <SolidColorBrush x:Key="TkxBorderStrong" Color="#d4d4d4" />
+          <SolidColorBrush x:Key="TkxGreyHover" Color="#fafafa" />
+
+          <!-- The area accent — indigo by default; see the note at the top. -->
+          <SolidColorBrush x:Key="TkxAccentHover" Color="#e0e7ff" />
+          <SolidColorBrush x:Key="TkxAccentActive" Color="#eef2ff" />
+
+          <SolidColorBrush x:Key="TkxIndigoHover" Color="#e0e7ff" />
+          <SolidColorBrush x:Key="TkxIndigoActive" Color="#eef2ff" />
+          <SolidColorBrush x:Key="TkxCyanHover" Color="#cefafe" />
+          <SolidColorBrush x:Key="TkxCyanActive" Color="#ecfeff" />
+          <SolidColorBrush x:Key="TkxBlueHover" Color="#dbeafe" />
+          <SolidColorBrush x:Key="TkxBlueActive" Color="#eff6ff" />
+          <SolidColorBrush x:Key="TkxGreenHover" Color="#dcfce7" />
+          <SolidColorBrush x:Key="TkxGreenActive" Color="#f0fdf4" />
+          <SolidColorBrush x:Key="TkxPinkHover" Color="#fce7f3" />
+          <SolidColorBrush x:Key="TkxPinkActive" Color="#fdf2f8" />
+          <SolidColorBrush x:Key="TkxAmberHover" Color="#fef3c6" />
+          <SolidColorBrush x:Key="TkxAmberActive" Color="#fffbeb" />
+          <SolidColorBrush x:Key="TkxPurpleHover" Color="#f3e8ff" />
+          <SolidColorBrush x:Key="TkxPurpleActive" Color="#faf5ff" />
+          <SolidColorBrush x:Key="TkxEmeraldHover" Color="#d0fae5" />
+          <SolidColorBrush x:Key="TkxEmeraldActive" Color="#ecfdf5" />
+          <SolidColorBrush x:Key="TkxTealHover" Color="#cbfbf1" />
+          <SolidColorBrush x:Key="TkxTealActive" Color="#f0fdfa" />
+          <SolidColorBrush x:Key="TkxLimeHover" Color="#ecfcca" />
+          <SolidColorBrush x:Key="TkxLimeActive" Color="#f7fee7" />
+          <SolidColorBrush x:Key="TkxSlateHover" Color="#f1f5f9" />
+          <SolidColorBrush x:Key="TkxSlateActive" Color="#f8fafc" />
+          <SolidColorBrush x:Key="TkxOrangeHover" Color="#ffedd4" />
+          <SolidColorBrush x:Key="TkxOrangeActive" Color="#fff7ed" />
+
+          <!-- Chat-specific: only a conversational surface (Elfwida) uses these.
+               An app without a chat may leave them, unused, where they are. -->
+          <SolidColorBrush x:Key="TkxAssistantBubble" Color="#e0e7ff" />
+          <SolidColorBrush x:Key="TkxAssistantBubbleBorder" Color="#a3b3ff" />
+          <SolidColorBrush x:Key="TkxUserBubble" Color="#fef3c6" />
+          <SolidColorBrush x:Key="TkxUserBubbleBorder" Color="#ffd230" />
+          <SolidColorBrush x:Key="TkxHabitStrip" Color="#ecfeff" />
+          <SolidColorBrush x:Key="TkxHabitStripBorder" Color="#53eafd" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="TkxPage" Color="#2e2a27" />
+          <SolidColorBrush x:Key="TkxSection" Color="#3a3532" />
+          <SolidColorBrush x:Key="TkxBorder" Color="#1f1c19" />
+          <SolidColorBrush x:Key="TkxText" Color="#fafaf9" />
+          <SolidColorBrush x:Key="TkxVeil" Color="#992e2a27" />
+
+          <SolidColorBrush x:Key="TkxBorderStrong" Color="#5a534e" />
+          <SolidColorBrush x:Key="TkxGreyHover" Color="#453f3b" />
+
+          <SolidColorBrush x:Key="TkxAccentHover" Color="#1e1a4d" />
+          <SolidColorBrush x:Key="TkxAccentActive" Color="#1e1a4d" />
+
+          <SolidColorBrush x:Key="TkxIndigoHover" Color="#1e1a4d" />
+          <SolidColorBrush x:Key="TkxIndigoActive" Color="#1e1a4d" />
+          <SolidColorBrush x:Key="TkxCyanHover" Color="#053345" />
+          <SolidColorBrush x:Key="TkxCyanActive" Color="#053345" />
+          <SolidColorBrush x:Key="TkxBlueHover" Color="#162456" />
+          <SolidColorBrush x:Key="TkxBlueActive" Color="#162456" />
+          <SolidColorBrush x:Key="TkxGreenHover" Color="#032e15" />
+          <SolidColorBrush x:Key="TkxGreenActive" Color="#032e15" />
+          <SolidColorBrush x:Key="TkxPinkHover" Color="#510424" />
+          <SolidColorBrush x:Key="TkxPinkActive" Color="#510424" />
+          <SolidColorBrush x:Key="TkxAmberHover" Color="#461901" />
+          <SolidColorBrush x:Key="TkxAmberActive" Color="#461901" />
+          <SolidColorBrush x:Key="TkxPurpleHover" Color="#3c0366" />
+          <SolidColorBrush x:Key="TkxPurpleActive" Color="#3c0366" />
+          <SolidColorBrush x:Key="TkxEmeraldHover" Color="#002c22" />
+          <SolidColorBrush x:Key="TkxEmeraldActive" Color="#002c22" />
+          <SolidColorBrush x:Key="TkxTealHover" Color="#022f2e" />
+          <SolidColorBrush x:Key="TkxTealActive" Color="#022f2e" />
+          <SolidColorBrush x:Key="TkxLimeHover" Color="#192e03" />
+          <SolidColorBrush x:Key="TkxLimeActive" Color="#192e03" />
+          <SolidColorBrush x:Key="TkxSlateHover" Color="#020618" />
+          <SolidColorBrush x:Key="TkxSlateActive" Color="#020618" />
+          <SolidColorBrush x:Key="TkxOrangeHover" Color="#441306" />
+          <SolidColorBrush x:Key="TkxOrangeActive" Color="#441306" />
+
+          <!-- Chat-specific (see the light dictionary above). -->
+          <SolidColorBrush x:Key="TkxAssistantBubble" Color="#1e1a4d" />
+          <SolidColorBrush x:Key="TkxAssistantBubbleBorder" Color="#80615fff" />
+          <SolidColorBrush x:Key="TkxUserBubble" Color="#461901" />
+          <SolidColorBrush x:Key="TkxUserBubbleBorder" Color="#80fe9a00" />
+          <SolidColorBrush x:Key="TkxHabitStrip" Color="#053345" />
+          <SolidColorBrush x:Key="TkxHabitStripBorder" Color="#8000b8db" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <!-- Accents are the same in both themes. Deep is the 600 step, for a
+           coloured word on a white ground where the 500 would be too light. -->
+      <SolidColorBrush x:Key="TkxAccent" Color="#615fff" />
+
+      <SolidColorBrush x:Key="TkxIndigo" Color="#615fff" />
+      <SolidColorBrush x:Key="TkxIndigoDeep" Color="#4f39f6" />
+      <SolidColorBrush x:Key="TkxCyan" Color="#00b8db" />
+      <SolidColorBrush x:Key="TkxCyanDeep" Color="#0092b8" />
+      <SolidColorBrush x:Key="TkxBlue" Color="#2b7fff" />
+      <SolidColorBrush x:Key="TkxBlueDeep" Color="#155dfc" />
+      <SolidColorBrush x:Key="TkxGreen" Color="#00c950" />
+      <SolidColorBrush x:Key="TkxGreenDeep" Color="#00a63e" />
+      <SolidColorBrush x:Key="TkxPink" Color="#f6339a" />
+      <SolidColorBrush x:Key="TkxPinkDeep" Color="#e60076" />
+      <SolidColorBrush x:Key="TkxAmber" Color="#fe9a00" />
+      <SolidColorBrush x:Key="TkxAmberDeep" Color="#e17100" />
+      <SolidColorBrush x:Key="TkxPurple" Color="#ad46ff" />
+      <SolidColorBrush x:Key="TkxPurpleDeep" Color="#9810fa" />
+      <SolidColorBrush x:Key="TkxEmerald" Color="#00bc7d" />
+      <SolidColorBrush x:Key="TkxEmeraldDeep" Color="#009966" />
+      <SolidColorBrush x:Key="TkxTeal" Color="#00bba7" />
+      <SolidColorBrush x:Key="TkxTealDeep" Color="#009689" />
+      <SolidColorBrush x:Key="TkxLime" Color="#7ccf00" />
+      <SolidColorBrush x:Key="TkxLimeDeep" Color="#5ea500" />
+      <SolidColorBrush x:Key="TkxSlate" Color="#62748e" />
+      <SolidColorBrush x:Key="TkxSlateDeep" Color="#45556c" />
+      <SolidColorBrush x:Key="TkxOrange" Color="#ff6900" />
+      <SolidColorBrush x:Key="TkxOrangeDeep" Color="#f54900" />
+
+      <FontFamily x:Key="TkxSans">avares://Vakage/Assets/Fonts#Roboto</FontFamily>
+      <FontFamily x:Key="TkxSlab">avares://Vakage/Assets/Fonts#Roboto Slab</FontFamily>
+      <FontFamily x:Key="TkxCondensed">avares://Vakage/Assets/Fonts#Roboto Condensed</FontFamily>
+      <FontFamily x:Key="TkxMono">avares://Vakage/Assets/Fonts#Roboto Mono</FontFamily>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- ===== Type ===== -->
+  <Style Selector="TextBlock">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="SelectableTextBlock">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <!-- Captions are Condensed and small, but full-strength: no grey-on-white. -->
+  <Style Selector="TextBlock.caption, SelectableTextBlock.caption">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="LineHeight" Value="18" />
+  </Style>
+  <Style Selector="TextBlock.prose, SelectableTextBlock.prose">
+    <Setter Property="FontSize" Value="21" />
+    <Setter Property="LineHeight" Value="32" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <!-- Slab is its own emphasis: Medium, never Bold, unless two Slab lines must differ. -->
+  <Style Selector="TextBlock.subheading">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSlab}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="LineHeight" Value="24" />
+  </Style>
+  <Style Selector="TextBlock.heading">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSlab}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="21" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="LineHeight" Value="28" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSlab}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="26" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="LineHeight" Value="32" />
+  </Style>
+  <!-- Where a column is narrow, the face gets narrower, not the size. -->
+  <Style Selector="TextBlock.compact">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="16" />
+  </Style>
+  <!-- Table headers: Condensed, short, and at full strength. -->
+  <Style Selector="TextBlock.columnheader">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <!-- Verbatim things: code, identifiers, file names, paths, raw values. Only
+       the face changes, so mono composes with caption, compact or prose. -->
+  <Style Selector="TextBlock.mono, SelectableTextBlock.mono">
+    <Setter Property="FontFamily" Value="{StaticResource TkxMono}" />
+  </Style>
+  <Style Selector="TextBlock.negative, SelectableTextBlock.negative">
+    <Setter Property="Foreground" Value="{StaticResource TkxOrangeDeep}" />
+  </Style>
+  <Style Selector="TextBlock.positive, SelectableTextBlock.positive">
+    <Setter Property="Foreground" Value="{StaticResource TkxLimeDeep}" />
+  </Style>
+
+  <!-- ===== Page and sections ===== -->
+  <Style Selector="Border.page">
+    <Setter Property="Background" Value="{DynamicResource TkxPage}" />
+  </Style>
+  <Style Selector="Border.section">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+  <Style Selector="Border.section.bar">
+    <Setter Property="Padding" Value="8" />
+  </Style>
+
+  <!-- ===== Plain buttons =====
+       Inside a form or a dialog an ordinary button may stay an ordinary button,
+       but it is Condensed 16 like every other button in the app. This block
+       comes before the pills so that a pill, matching later, wins. -->
+  <Style Selector="Button">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="14,7" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPage}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPage}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+
+  <!-- ===== Inputs =====
+       No faint placeholder text: light grey on white is made to be hard to read.
+       A hint, when there must be one, goes in a caption beside the field.
+       A field lights its border in the area accent when it has the focus. -->
+  <Style Selector="TextBox">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,8" />
+  </Style>
+  <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+  </Style>
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+  </Style>
+  <Style Selector="TextBox.prose">
+    <Setter Property="FontSize" Value="21" />
+    <Setter Property="LineHeight" Value="32" />
+    <Setter Property="Padding" Value="12,8" />
+  </Style>
+  <Style Selector="TextBox.prose:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+  </Style>
+
+  <!-- A drop-down is an input by another name: same white field, same 2 px
+       border, same radius. -->
+  <Style Selector="ComboBox">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="MinHeight" Value="36" />
+  </Style>
+  <Style Selector="ComboBox /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+  <Style Selector="ComboBox:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorderStrong}" />
+  </Style>
+  <Style Selector="ComboBox:pressed /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+  </Style>
+  <Style Selector="ComboBox:focus /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+  </Style>
+  <Style Selector="ComboBox:dropdownopen /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+  </Style>
+  <Style Selector="ComboBoxItem">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="10,7" />
+  </Style>
+  <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="ComboBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentActive}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="ComboBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+
+  <!-- A spinner is a field with two small buttons: the box carries the border,
+       the text box inside it carries none, so there is only one outline. -->
+  <Style Selector="NumericUpDown">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+  <Style Selector="NumericUpDown /template/ ButtonSpinner#PART_Spinner">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+  <Style Selector="NumericUpDown /template/ TextBox#PART_TextBox">
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ButtonSpinner /template/ Border#border">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+  <Style Selector="ButtonSpinner:pointerover /template/ Border#border">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorderStrong}" />
+  </Style>
+  <Style Selector="ButtonSpinner:focus-within /template/ Border#border">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+  </Style>
+  <Style Selector="RepeatButton.spinnerButton">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="RepeatButton.spinnerButton:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+
+  <!-- A date is picked in the same quiet frame. -->
+  <Style Selector="CalendarDatePicker, DatePicker">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+
+  <Style Selector="CheckBox">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="RadioButton">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+
+  <!-- A disabled field is quiet and empty, not a grey slab. -->
+  <Style Selector="TextBox:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="TextBox:disabled /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+  </Style>
+  <Style Selector="ComboBox:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="ComboBox:disabled /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+  </Style>
+  <Style Selector="NumericUpDown:disabled, CalendarDatePicker:disabled, DatePicker:disabled, CheckBox:disabled, RadioButton:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+
+  <!-- ===== Lists =====
+       A list lives inside a section, so it brings no panel of its own; a row is
+       interface text, and the selected row is filled in like an active pill.
+       The row's border lives on the content presenter, transparent at rest, so
+       that selecting a row colours it in without moving the text. -->
+  <Style Selector="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBoxItem">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+  <Style Selector="ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentActive}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="TextBlock.FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:focus /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentActive}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:focus:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAccentHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+
+  <!-- ===== Pills: grey at rest, light up on hover, fill in when active ===== -->
+  <Style Selector="Button.pill">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="20" />
+    <Setter Property="Height" Value="40" />
+    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.15" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.pill /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Transitions">
+      <Transitions>
+        <BrushTransition Property="Background" Duration="0:0:0.15" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.pill:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="Button.pill:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.active">
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+
+  <!-- No colour of its own: it answers the pointer in grey and stays quiet.
+       A pill that does carry a hue matches one of the blocks below, which come
+       later and so win. -->
+  <Style Selector="Button.pill:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreyHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorderStrong}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreyHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorderStrong}" />
+  </Style>
+
+  <!-- indigo: AI characters -->
+  <Style Selector="Button.pill.indigo:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxIndigoHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxIndigo}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.indigo.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxIndigoActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxIndigo}" />
+  </Style>
+  <Style Selector="Button.pill.indigo.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxIndigoHover}" />
+  </Style>
+  <Style Selector="Button.pill.indigo:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxIndigoHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxIndigo}" />
+  </Style>
+
+  <!-- cyan: Habit Tracker -->
+  <Style Selector="Button.pill.cyan:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxCyanHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxCyan}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.cyan.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxCyanActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxCyan}" />
+  </Style>
+  <Style Selector="Button.pill.cyan.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxCyanHover}" />
+  </Style>
+  <Style Selector="Button.pill.cyan:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxCyanHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxCyan}" />
+  </Style>
+
+  <!-- blue: constructs -->
+  <Style Selector="Button.pill.blue:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxBlueHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxBlue}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.blue.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxBlueActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxBlue}" />
+  </Style>
+  <Style Selector="Button.pill.blue.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxBlueHover}" />
+  </Style>
+  <Style Selector="Button.pill.blue:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxBlueHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxBlue}" />
+  </Style>
+
+  <!-- green: dictionaries -->
+  <Style Selector="Button.pill.green:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreenHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxGreen}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.green.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreenActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxGreen}" />
+  </Style>
+  <Style Selector="Button.pill.green.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreenHover}" />
+  </Style>
+  <Style Selector="Button.pill.green:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxGreenHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxGreen}" />
+  </Style>
+
+  <!-- pink: prompts -->
+  <Style Selector="Button.pill.pink:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPinkHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPink}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.pink.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPinkActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPink}" />
+  </Style>
+  <Style Selector="Button.pill.pink.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPinkHover}" />
+  </Style>
+  <Style Selector="Button.pill.pink:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPinkHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPink}" />
+  </Style>
+
+  <!-- amber: files -->
+  <Style Selector="Button.pill.amber:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAmberHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxAmber}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.amber.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAmberActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxAmber}" />
+  </Style>
+  <Style Selector="Button.pill.amber.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAmberHover}" />
+  </Style>
+  <Style Selector="Button.pill.amber:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxAmberHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxAmber}" />
+  </Style>
+
+  <!-- purple: vault (markdown sync) -->
+  <Style Selector="Button.pill.purple:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPurpleHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPurple}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.purple.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPurpleActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPurple}" />
+  </Style>
+  <Style Selector="Button.pill.purple.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPurpleHover}" />
+  </Style>
+  <Style Selector="Button.pill.purple:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxPurpleHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxPurple}" />
+  </Style>
+
+  <!-- emerald: settings, recollections -->
+  <Style Selector="Button.pill.emerald:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxEmeraldHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxEmerald}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.emerald.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxEmeraldActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxEmerald}" />
+  </Style>
+  <Style Selector="Button.pill.emerald.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxEmeraldHover}" />
+  </Style>
+  <Style Selector="Button.pill.emerald:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxEmeraldHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxEmerald}" />
+  </Style>
+
+  <!-- teal: systems -->
+  <Style Selector="Button.pill.teal:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxTealHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxTeal}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.teal.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxTealActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxTeal}" />
+  </Style>
+  <Style Selector="Button.pill.teal.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxTealHover}" />
+  </Style>
+  <Style Selector="Button.pill.teal:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxTealHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxTeal}" />
+  </Style>
+
+  <!-- slate: the family itself (Nauarchos) — a hue with no area and no meaning -->
+  <Style Selector="Button.pill.slate:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSlateHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxSlate}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.slate.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSlateActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxSlate}" />
+  </Style>
+  <Style Selector="Button.pill.slate.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSlateHover}" />
+  </Style>
+  <Style Selector="Button.pill.slate:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSlateHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxSlate}" />
+  </Style>
+
+  <!-- lime: positive -->  <Style Selector="Button.pill.lime:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxLimeHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxLime}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.lime.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxLimeActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxLime}" />
+  </Style>
+  <Style Selector="Button.pill.lime.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxLimeHover}" />
+  </Style>
+  <Style Selector="Button.pill.lime:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxLimeActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxLime}" />
+  </Style>
+
+  <!-- orange: negative -->
+  <Style Selector="Button.pill.orange:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxOrangeHover}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxOrange}" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+  </Style>
+  <Style Selector="Button.pill.orange.active /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxOrangeActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxOrange}" />
+  </Style>
+  <Style Selector="Button.pill.orange.active:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxOrangeHover}" />
+  </Style>
+  <Style Selector="Button.pill.orange:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxOrangeActive}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TkxOrange}" />
+  </Style>
+
+  <!-- A quiet text link, in the area accent -->
+  <Style Selector="Button.link">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxAccent}" />
+    <Setter Property="TextBlock.TextDecorations" Value="Underline" />
+  </Style>
+
+  <!-- ===== Odds and ends ===== -->
+  <!-- Menus pick up the family too -->
+  <Style Selector="MenuItem">
+    <Setter Property="FontFamily" Value="{StaticResource TkxSans}" />
+    <Setter Property="FontSize" Value="16" />
+  </Style>
+  <Style Selector="Separator">
+    <Setter Property="Background" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="Height" Value="2" />
+  </Style>
+  <Style Selector="ToolTip">
+    <Setter Property="FontFamily" Value="{StaticResource TkxCondensed}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{DynamicResource TkxText}" />
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+  </Style>
+  <!-- A flyout is a small section that floats: the same white, border, radius. -->
+  <Style Selector="FlyoutPresenter">
+    <Setter Property="Background" Value="{DynamicResource TkxSection}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource TkxBorder}" />
+    <Setter Property="BorderThickness" Value="2" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="12" />
+  </Style>
+</Styles>

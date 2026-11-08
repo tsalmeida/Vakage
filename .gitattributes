@@ -1,0 +1,23 @@
+# Normalize line endings so the repo is stable across machines.
+* text=auto eol=lf
+
+*.cs        text diff=csharp
+*.csproj    text
+*.slnx      text eol=crlf
+*.sln       text eol=crlf
+*.axaml     text
+*.md        text
+*.json      text
+*.yml       text
+*.bat       text eol=crlf
+
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.sqlite    binary
+*.zip       binary
+*.wav       binary
+*.mp3       binary
+*.ogg       binary
+
+*.ttf       binary
