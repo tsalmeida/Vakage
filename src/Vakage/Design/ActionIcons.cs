@@ -24,6 +24,7 @@ public static class ActionIcons
     public const string Compress = "f066";
     public const string Eraser = "f12d";
     public const string FileImport = "f56f";
+    public const string FileLines = "f15c";
     public const string FolderOpen = "f07c";
     public const string Link = "f0c1";
     public const string LinkSlash = "f127";
@@ -32,6 +33,7 @@ public static class ActionIcons
     public const string Star = "f005";
     public const string TrashCan = "f2ed";
     public const string UserPlus = "f234";
+    public const string VolumeHigh = "f028";
     public const string Xmark = "f00d";
 
     public static string Glyph(string codepoint) =>

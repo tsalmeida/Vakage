@@ -238,29 +238,49 @@ public partial class MainWindow : Window
     private List<Conversation> SelectedConversations()
         => ConversationList.SelectedItems?.OfType<Conversation>().ToList() ?? [];
 
+    /// <summary>One chat history of a person shown alone; null shows all of them together.</summary>
+    private long? _history;
+    private Conversation? _shown;
+
     private void ShowSelectedConversation()
     {
         var selected = SelectedConversations();
         JoinButton.IsEnabled = selected.Count >= 2;
         UnjoinButton.IsEnabled = selected.Count == 1 && selected[0].IsJoined;
         DeleteButton.IsEnabled = selected.Count >= 1;
+        NoisyButton.IsEnabled = selected.Count == 1;
+        HistoryBar.Children.Clear();
 
         if (selected.Count != 1)
         {
             ChatTitle.Text = selected.Count == 0 ? "" : $"{selected.Count} conversations selected";
-            ChatCaption.Text = selected.Count == 0 ? "" : "Join reads them as one conversation; Delete removes them all.";
+            ChatCaption.Text = selected.Count == 0 ? "" : "Same person ties them together (each history stays apart); Delete removes them all.";
             MessageList.ItemsSource = null;
+            _shown = null;
             return;
         }
 
         var c = selected[0];
-        var messages = _library.Messages(c.ChatIds);
+        if (_shown?.ChatIds.SequenceEqual(c.ChatIds) != true) _history = null;
+        _shown = c;
+        var chats = _library.Chats(_account!.Id).Where(x => c.ChatIds.Contains(x.Id)).ToList();
+        var noisy = chats.Count > 0 && chats.All(x => x.Noisy);
+        NoisyButton.Classes.Set("active", noisy);
+
+        var showing = _history is { } one ? [one] : c.ChatIds;
+        var messages = _library.Messages(showing);
         ChatTitle.Text = c.Title;
         ChatCaption.Text = $"{_account?.Name}'s archive · {c.MessageCount:N0} messages · {c.First:d MMM yyyy} to {c.Last:d MMM yyyy}" +
-                           (c.IsJoined ? $" · joined from {c.ChatIds.Count} chats" : "");
-        _chatTitles = c.IsJoined
-            ? _library.Chats(_account!.Id).Where(x => c.ChatIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Title)
-            : null;
+                           (c.IsJoined ? $" · the same person in {c.ChatIds.Count} chat histories" : "") +
+                           (noisy ? " · noisy: its pictures are pruned hard" : "");
+        _chatTitles = c.IsJoined && _history is null ? chats.ToDictionary(x => x.Id, x => x.Title) : null;
+
+        if (c.IsJoined)
+        {
+            HistoryBar.Children.Add(HistoryChip("All together", $"{c.MessageCount:N0}", null));
+            foreach (var chat in chats.OrderBy(x => x.First))
+                HistoryChip(chat.Title, $"{chat.MessageCount:N0} · {chat.First:yyyy}–{chat.Last:yyyy}", chat.Id);
+        }
 
         var rows = new List<object>(messages.Count + 64);
         DateTime? day = null;
@@ -279,21 +299,51 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => MessageList.ScrollIntoView(rows.Count - 1), DispatcherPriority.Background);
     }
 
+    /// <summary>A button for one of a person's chat histories, or for all of them together.</summary>
+    private Button HistoryChip(string title, string count, long? chatId)
+    {
+        var chip = new Button { Margin = new Thickness(0, 4, 8, 4) };
+        chip.Classes.Add("pill");
+        chip.Classes.Add("blue");
+        chip.Classes.Set("active", _history == chatId);
+        chip.Content = ActionIcons.Label(chatId is null ? ActionIcons.Link : ActionIcons.Comments, $"{title} · {count}", "blue");
+        ToolTip.SetTip(chip, chatId is null ? "Every history of this person, as one stream" : "This history alone");
+        chip.Click += (_, _) =>
+        {
+            _history = chatId;
+            ShowSelectedConversation();
+        };
+        if (chatId is not null) HistoryBar.Children.Add(chip);
+        return chip;
+    }
+
+    private async void OnNoisyClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shown is not { } c || _account is null) return;
+        var make = !NoisyButton.Classes.Contains("active");
+        _library.SetNoisy(c.ChatIds, make);
+        Status(make ? $"{c.Title} is noisy: working out again which of its files to keep…" : $"{c.Title} is no longer noisy.");
+        var r = await Task.Run(() => _library.Suggest());
+        ShowSelectedConversation();
+        ReloadFiles();
+        Status($"{c.Title} {(make ? "is noisy" : "is no longer noisy")}. Suggestions now: {r.Important:N0} important, {r.Irrelevant:N0} irrelevant.");
+    }
+
     private Dictionary<long, string>? _chatTitles;
 
     private async void OnJoinClick(object? sender, RoutedEventArgs e)
     {
         var selected = SelectedConversations();
         if (selected.Count < 2) return;
-        var title = await Dialogs.AskText(this, "Join conversations",
-            "The joined conversation's name. The chats stay as they were imported, and Unjoin parts them again.",
-            selected[0].Title);
+        var title = await Dialogs.AskText(this, "The same person",
+            "These chats are one person, under different numbers or accounts. Each history stays as it was, readable alone or all together; Separate undoes it. The person's name:",
+            selected[0].Title.Contains(" (+") ? selected[0].Title[..selected[0].Title.IndexOf(" (+", StringComparison.Ordinal)] : selected[0].Title);
         if (string.IsNullOrWhiteSpace(title)) return;
         try
         {
             _library.Join(selected.SelectMany(c => c.ChatIds).Distinct().ToList(), title);
             ReloadConversations();
-            Status($"Joined {selected.Count} conversations as {title}.");
+            Status($"{title}: {selected.Count} chat histories of the same person.");
         }
         catch (Exception ex)
         {
@@ -307,7 +357,7 @@ public partial class MainWindow : Window
         if (selected is not [{ ThreadId: { } thread } c]) return;
         _library.Unjoin(thread);
         ReloadConversations();
-        Status($"{c.Title} is parted into its {c.ChatIds.Count} chats again.");
+        Status($"{c.Title}'s {c.ChatIds.Count} chats are listed apart again.");
     }
 
     private async void OnDeleteClick(object? sender, RoutedEventArgs e)
@@ -354,6 +404,7 @@ public partial class MainWindow : Window
         ImportantTab.Classes.Set("active", list == Core.Library.FileList.Important);
         IrrelevantTab.Classes.Set("active", list == Core.Library.FileList.Irrelevant);
         UnsortedTab.Classes.Set("active", list == Core.Library.FileList.Unsorted);
+        DocumentsTab.Classes.Set("active", list == Core.Library.FileList.Documents);
         AllFilesTab.Classes.Set("active", list == Core.Library.FileList.All);
         ReduceButton.IsVisible = list == Core.Library.FileList.Irrelevant;
         ShowFiles();
@@ -378,6 +429,7 @@ public partial class MainWindow : Window
             Core.Library.FileList.Important => "important ",
             Core.Library.FileList.Irrelevant => "irrelevant ",
             Core.Library.FileList.Unsorted => "unsorted ",
+            Core.Library.FileList.Documents => "document ",
             _ => "",
         };
         FilesCaption.Text = $"{files.Count:N0} {list}files in {_account.Name}'s archive, {Format.Bytes(whole.Sum(f => f.Size))} kept whole" +
@@ -541,18 +593,42 @@ public partial class MainWindow : Window
 
         var meta = new TextBlock
         {
-            Text = $"{m.Sender} · {m.SentAt:HH:mm}" + (m.Forwarded ? " · forwarded" : "") +
+            Text = (m.Starred ? "★ " : "") + $"{m.Sender} · {m.SentAt:HH:mm}" +
+                   (m.Forwarded ? m.ForwardScore >= 5 ? " · forwarded many times" : " · forwarded" : "") +
                    (_chatTitles is not null && _chatTitles.TryGetValue(m.ChatId, out var from) ? $" · {from}" : ""),
             TextWrapping = TextWrapping.Wrap,
         };
         meta.Classes.Add("caption");
         content.Children.Add(meta);
 
+        if (m.QuotedSender is not null || m.QuotedBody is not null)
+        {
+            var quote = new TextBlock
+            {
+                Text = $"{m.QuotedSender}: {Shorten(m.QuotedBody ?? "", 160)}",
+                TextWrapping = TextWrapping.Wrap,
+                FontStyle = FontStyle.Italic,
+            };
+            quote.Classes.Add("caption");
+            content.Children.Add(new Border
+            {
+                Child = quote,
+                BorderThickness = new Thickness(3, 0, 0, 0),
+                BorderBrush = Palette.Blue.Brush500,
+                Padding = new Thickness(8, 2),
+            });
+        }
+
         if (m.Kind == MessageKind.MediaOmitted)
         {
-            var omitted = new TextBlock { Text = "A file that never reached this archive (not downloaded, or left out of the export).", FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap };
+            var omitted = new TextBlock { Text = "A file that never reached this archive (the phone had not downloaded it)." + (m.MessageThumb is not null ? " Its preview is kept:" : ""), FontStyle = FontStyle.Italic, TextWrapping = TextWrapping.Wrap };
             omitted.Classes.Add("caption");
             content.Children.Add(omitted);
+            if (m.MessageThumb is { } preview && File.Exists(preview))
+            {
+                try { content.Children.Add(new Image { Source = new Bitmap(preview), MaxWidth = 240, MaxHeight = 240, HorizontalAlignment = HorizontalAlignment.Left }); }
+                catch (Exception) { /* not a picture */ }
+            }
         }
         else if (m.Reduced is { } reduced && m.AttachmentName is { } let)
         {
@@ -568,6 +644,20 @@ public partial class MainWindow : Window
             var body = new SelectableTextBlock { Text = m.Body, TextWrapping = TextWrapping.Wrap };
             body.Classes.Add("prose");
             content.Children.Add(body);
+        }
+        if (m.LinkTitle is { } link)
+        {
+            var preview = new TextBlock { Text = $"🔗 {link}", TextWrapping = TextWrapping.Wrap };
+            preview.Classes.Add("caption");
+            if (m.LinkUrl is { } url) ToolTip.SetTip(preview, url);
+            content.Children.Add(preview);
+        }
+        if (m.VCard is { } card && card.Split('\n').FirstOrDefault(l => l.StartsWith("FN:", StringComparison.OrdinalIgnoreCase)) is { } fn)
+        {
+            var contact = new TextBlock { Text = $"Contact card: {fn[3..].Trim()}", TextWrapping = TextWrapping.Wrap };
+            contact.Classes.Add("caption");
+            ToolTip.SetTip(contact, card);
+            content.Children.Add(contact);
         }
 
         var bubble = new Border
@@ -621,6 +711,9 @@ public partial class MainWindow : Window
         }
         return panel;
     }
+
+    private static string Shorten(string text, int length)
+        => text.Length <= length ? text.Replace('\n', ' ') : text[..length].Replace('\n', ' ') + "…";
 
     private Control Attachment(string name, string? path, long? size)
     {

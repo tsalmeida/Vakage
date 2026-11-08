@@ -22,7 +22,7 @@ namespace Vakage;
 internal static class CommandLine
 {
     public static bool Requested(string[] args)
-        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--suggest" or "--mark" or "--reduce" or "--help" or "-h");
+        => args.Any(a => a is "--import" or "--import-ios" or "--join" or "--list" or "--files" or "--suggest" or "--mark" or "--reduce" or "--delete" or "--read-text" or "--noisy" or "--group-same-names" or "--help" or "-h");
 
     public static int Run(string[] args)
     {
@@ -52,6 +52,14 @@ internal static class CommandLine
                 return Mark(library, mark, options);
             if (options.Has("--reduce"))
                 return Reduce(library, options);
+            if (options.Value("--delete") is { } doomed)
+                return Delete(library, doomed, options);
+            if (options.Has("--read-text"))
+                return ReadText(library, options);
+            if (options.Value("--noisy") is { } noisy)
+                return Noisy(library, noisy, options);
+            if (options.Has("--group-same-names"))
+                return GroupSameNames(library, options);
             return List(library, options);
         }
         catch (Exception ex)
@@ -72,6 +80,10 @@ internal static class CommandLine
         Vakage --mark important|irrelevant|none --file <id>[,…]
         Vakage --reduce --account <name> [--file <id>[,…]] --yes
                                                   (keep the text or a thumbnail of irrelevant files and DELETE the originals)
+        Vakage --delete <chat id>[,…] --yes      (delete chats for good; later imports leave them out)
+        Vakage --read-text --account <name> [--chat <id>[,…]] [--jobs 6]   (read the words in pictures and PDFs, with Eidokanon)
+        Vakage --noisy <chat id>[,…] [--off]       (a chat of daily forwards: prune its files hard)
+        Vakage --group-same-names --account <name> (tie together one person's chats under different numbers)
         Any command: --library <folder> (default: the library in settings)
         """;
 
@@ -191,6 +203,47 @@ internal static class CommandLine
         foreach (var note in r.Notes.Take(20)) Console.WriteLine($"  {note}");
         return 0;
     }
+
+    private static int Delete(ArchiveLibrary library, string ids, Options options)
+    {
+        if (!options.Has("--yes"))
+            throw new ArgumentException("--delete removes chats, their messages and the files nothing else uses, and later imports leave them out. Add --yes to go ahead.");
+        var chatIds = ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(i => long.Parse(i, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        var freed = library.DeleteChats(chatIds);
+        Console.WriteLine($"Deleted {chatIds.Count} chat(s); {Format.Bytes(freed)} freed.");
+        return 0;
+    }
+
+    private static int ReadText(ArchiveLibrary library, Options options)
+    {
+        var account = FindAccount(library, options, "--read-text");
+        var jobs = int.TryParse(options.Value("--jobs"), out var j) ? j : 6;
+        var started = DateTime.Now;
+        var n = library.ReadTexts(account.Id, ChatIds(options), new EidokanonTextReader(), jobs, line => Console.WriteLine(line));
+        Console.WriteLine($"Read {n:N0} files in {(DateTime.Now - started).TotalMinutes:0.0} minutes.");
+        return Suggest(library);
+    }
+
+    private static int Noisy(ArchiveLibrary library, string ids, Options options)
+    {
+        var chatIds = ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(i => long.Parse(i, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        library.SetNoisy(chatIds, !options.Has("--off"));
+        Console.WriteLine($"{chatIds.Count} chat(s) {(options.Has("--off") ? "no longer" : "now")} noisy.");
+        return Suggest(library);
+    }
+
+    private static int GroupSameNames(ArchiveLibrary library, Options options)
+    {
+        var account = FindAccount(library, options, "--group-same-names");
+        Console.WriteLine($"{library.GroupSameNames(account.Id)} people tied to their chats under other numbers.");
+        return 0;
+    }
+
+    private static List<long>? ChatIds(Options options)
+        => options.Value("--chat")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(i => long.Parse(i, System.Globalization.CultureInfo.InvariantCulture)).ToList();
 
     private static Account FindAccount(ArchiveLibrary library, Options options, string command)
     {

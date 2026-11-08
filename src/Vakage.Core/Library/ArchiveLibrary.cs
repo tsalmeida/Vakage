@@ -9,7 +9,8 @@ public sealed record Account(long Id, string Name, string? SelfName);
 
 /// <summary>A chat as one export (or several exports of the same chat) brought it in.</summary>
 /// <param name="Kind">person, group or channel; null when the source did not say (an export).</param>
-public sealed record Chat(long Id, long AccountId, string Source, string Title, long? ThreadId, int MessageCount, DateTime? First, DateTime? Last, string? Kind = null);
+public sealed record Chat(long Id, long AccountId, string Source, string Title, long? ThreadId, int MessageCount, DateTime? First, DateTime? Last, string? Kind = null,
+    bool Noisy = false);
 
 /// <summary>
 /// What the conversation list shows: a chat on its own, or a joined thread of
@@ -23,7 +24,9 @@ public sealed record Conversation(long? ChatId, long? ThreadId, string Title, in
 /// <param name="SentAt">The time to show: the exact UTC time in this computer's zone when the source knew it, else the wall clock the export gave.</param>
 /// <param name="Reduced">How an irrelevant file was let go: thumbnail, text or removed; null while the original is kept.</param>
 public sealed record StoredMessage(long Id, long ChatId, DateTime SentAt, string? Sender, string Body, MessageKind Kind, string? AttachmentName,
-    long? FileId, string? FilePath, long? FileSize, bool Forwarded = false, string? Reduced = null, string? ThumbPath = null, string? FileText = null);
+    long? FileId, string? FilePath, long? FileSize, bool Forwarded = false, string? Reduced = null, string? ThumbPath = null, string? FileText = null,
+    bool Starred = false, string? QuotedSender = null, string? QuotedBody = null, string? LinkTitle = null, string? LinkUrl = null,
+    string? MessageThumb = null, string? VCard = null, int? ForwardScore = null);
 
 /// <summary>One stored file, with who sent it and where. A file sent many times is one row.</summary>
 /// <param name="Mark">important or irrelevant, as the person decided; null when undecided.</param>
@@ -139,7 +142,55 @@ public sealed partial class ArchiveLibrary
             ("forwarded", "INTEGER NOT NULL DEFAULT 0"), ("media_type", "TEXT"));
         AddColumns(conn, "files", ("mark", "TEXT"), ("suggestion", "TEXT"), ("suggestion_reason", "TEXT"),
             ("reduced", "TEXT"), ("thumb", "TEXT"), ("text", "TEXT"), ("reduced_at", "TEXT"),
-            ("width", "INTEGER"), ("height", "INTEGER"));
+            ("width", "INTEGER"), ("height", "INTEGER"), ("ocr", "TEXT"), ("ocr_words", "INTEGER"), ("doc_kind", "TEXT"));
+        AddColumns(conn, "messages", ("reply_to", "TEXT"), ("reply_sender", "TEXT"), ("starred", "INTEGER NOT NULL DEFAULT 0"),
+            ("forward_score", "INTEGER"), ("link_url", "TEXT"), ("link_title", "TEXT"), ("link_snippet", "TEXT"), ("vcard", "TEXT"),
+            ("mime", "TEXT"), ("thumb", "TEXT"), ("original_sender", "TEXT"), ("mentions", "TEXT"), ("raw_meta", "BLOB"), ("raw_receipts", "BLOB"));
+        AddColumns(conn, "chats", ("created_utc", "TEXT"), ("creator_key", "TEXT"), ("noisy", "INTEGER NOT NULL DEFAULT 0"),
+            ("archived", "INTEGER NOT NULL DEFAULT 0"));
+        AddColumns(conn, "messages", ("duration", "REAL"), ("media_size", "INTEGER"));
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS people (
+              account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+              key TEXT NOT NULL,
+              name TEXT, push_name TEXT, phone TEXT, phone_label TEXT, about TEXT, business TEXT, lid TEXT, username TEXT,
+              picture TEXT,
+              PRIMARY KEY (account_id, key)
+            );
+            CREATE TABLE IF NOT EXISTS calls (
+              id INTEGER PRIMARY KEY,
+              account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+              source_id TEXT NOT NULL,
+              started_utc TEXT NOT NULL,
+              seconds REAL NOT NULL,
+              video INTEGER NOT NULL, incoming INTEGER NOT NULL, missed INTEGER NOT NULL, outcome INTEGER,
+              group_key TEXT, participants TEXT, creator_key TEXT,
+              UNIQUE (account_id, source_id)
+            );
+            CREATE TABLE IF NOT EXISTS chat_members (
+              chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+              member_key TEXT NOT NULL,
+              name TEXT, admin INTEGER NOT NULL, active INTEGER NOT NULL,
+              PRIMARY KEY (chat_id, member_key)
+            );
+            CREATE TABLE IF NOT EXISTS blocked (
+              account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+              key TEXT NOT NULL,
+              PRIMARY KEY (account_id, key)
+            );
+            CREATE TABLE IF NOT EXISTS group_changes (
+              account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+              group_key TEXT NOT NULL, change_type INTEGER NOT NULL, changed_utc TEXT NOT NULL, members TEXT,
+              PRIMARY KEY (account_id, group_key, change_type, changed_utc)
+            );
+            CREATE TABLE IF NOT EXISTS excluded_chats (
+              account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+              source_key TEXT NOT NULL,
+              title TEXT,
+              excluded_at TEXT NOT NULL,
+              PRIMARY KEY (account_id, source_key)
+            );
+            """);
         Exec(conn, "CREATE INDEX IF NOT EXISTS messages_source ON messages(chat_id, source_id)");
     }
 
@@ -286,6 +337,10 @@ public sealed partial class ArchiveLibrary
             {
                 if (!knownIds.Add(m.SourceId))
                 {
+                    // Already archived: refresh what the phone says about it now
+                    // (starred, its preview, the blobs), never its text or file.
+                    if (m.Extras is { } known)
+                        WriteExtras(conn, "WHERE chat_id = $c AND source_id = $sid", known, ("$c", chatId), ("$sid", m.SourceId));
                     skipped++;
                     continue;
                 }
@@ -326,9 +381,12 @@ public sealed partial class ArchiveLibrary
                 ("$k", kind), ("$an", (object?)m.AttachmentName ?? DBNull.Value), ("$f", (object?)fileId ?? DBNull.Value),
                 ("$sid", (object?)m.SourceId ?? DBNull.Value), ("$utc", m.SentUtc is { } u ? Stamp(u) : DBNull.Value),
                 ("$sk", (object?)m.SenderKey ?? DBNull.Value), ("$fw", m.Forwarded ? 1 : 0), ("$mt", (object?)m.MediaType ?? DBNull.Value));
+            if (m.Extras is { } extras)
+                WriteExtras(conn, "WHERE id = last_insert_rowid()", extras);
             added++;
         }
 
+        _thumbSource = null;
         Exec(conn, "INSERT INTO imports (chat_id, source_path, imported_at, messages_added) VALUES ($c, $p, $t, $n)",
             ("$c", chatId), ("$p", sourcePath), ("$t", Now()), ("$n", added));
         tx.Commit();
@@ -343,8 +401,51 @@ public sealed partial class ArchiveLibrary
     /// WhatsApp id, so contacts saved under one name stay apart, their titles
     /// carrying the number, and a later backup adds only what is new.
     /// </summary>
+    /// <summary>Opens a thumbnail named in a message's extras, from the source being imported.</summary>
+    private Func<string, Stream?>? _thumbSource;
+
+    private void WriteExtras(SqliteConnection conn, string where, MessageExtras x, params (string Name, object Value)[] keys)
+    {
+        string? thumb = null;
+        if (x.ThumbSource is { } source && _thumbSource?.Invoke(source) is { } stream)
+        {
+            using (stream) thumb = StoreSmall(stream, "thumbs", ".jpg");
+        }
+        var parameters = new List<(string, object)>(keys)
+        {
+            ("$rt", (object?)x.ReplyTo ?? DBNull.Value), ("$rs", (object?)x.ReplySender ?? DBNull.Value), ("$st", x.Starred ? 1 : 0),
+            ("$fs", (object?)x.ForwardScore ?? DBNull.Value), ("$lu", (object?)x.LinkUrl ?? DBNull.Value), ("$lt", (object?)x.LinkTitle ?? DBNull.Value),
+            ("$ls", (object?)x.LinkSnippet ?? DBNull.Value), ("$vc", (object?)x.VCard ?? DBNull.Value), ("$mi", (object?)x.Mime ?? DBNull.Value),
+            ("$th", (object?)thumb ?? DBNull.Value), ("$os", (object?)x.OriginalSender ?? DBNull.Value), ("$me", (object?)x.Mentions ?? DBNull.Value),
+            ("$rm", (object?)x.RawMetadata ?? DBNull.Value), ("$rr", (object?)x.RawReceipts ?? DBNull.Value),
+            ("$du", (object?)x.Duration ?? DBNull.Value), ("$ms", (object?)x.MediaSize ?? DBNull.Value),
+        };
+        Exec(conn, $"""
+            UPDATE messages SET reply_to = $rt, reply_sender = $rs, starred = $st, forward_score = $fs, link_url = $lu, link_title = $lt,
+                   link_snippet = $ls, vcard = $vc, mime = $mi, thumb = coalesce($th, thumb), original_sender = $os, mentions = $me,
+                   raw_meta = $rm, raw_receipts = $rr, duration = $du, media_size = $ms
+            {where}
+            """, parameters.ToArray());
+    }
+
+    /// <summary>A small file (a thumbnail, a profile picture) kept by its content under a folder of the library.</summary>
+    private string StoreSmall(Stream source, string folder, string ext)
+    {
+        using var buffer = new MemoryStream();
+        source.CopyTo(buffer);
+        var sha = Convert.ToHexStringLower(SHA256.HashData(buffer.ToArray()));
+        var relative = Path.Combine(folder, sha[..2], sha + ext);
+        var full = Path.Combine(Root, relative);
+        if (!File.Exists(full))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllBytes(full, buffer.ToArray());
+        }
+        return relative;
+    }
+
     public IReadOnlyList<ImportResult> ImportWhatsAppIos(long accountId, string path, IReadOnlyList<string>? chatFilter = null,
-        Action<string>? progress = null)
+        Action<string>? progress = null, bool includeChannels = false)
     {
         var db = WhatsAppIosDatabase.Open(path);
         var account = Accounts().First(a => a.Id == accountId);
@@ -353,6 +454,13 @@ public sealed partial class ArchiveLibrary
 
         var chats = db.Chats();
         var liveKeys = chats.Select(c => "ios:" + c.Jid).ToHashSet(StringComparer.Ordinal);
+        // Chats deleted on purpose never come back, and channels (broadcast
+        // feeds, not conversations) are left out unless asked for.
+        var excluded = ExcludedKeys(accountId);
+        var skippedChats = chats.Where(c => excluded.Contains("ios:" + c.Jid) || (!includeChannels && c.Kind == "channel")).ToList();
+        if (skippedChats.Count > 0)
+            progress?.Invoke($"Leaving out {skippedChats.Count} chat(s): deleted before, or channels");
+        chats = chats.Except(skippedChats).ToList();
         var sharedNames = chats.GroupBy(c => c.Name).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         var picked = chatFilter is { Count: > 0 }
             ? chats.Where(c => chatFilter.Any(f => c.Name.Contains(f, StringComparison.OrdinalIgnoreCase) || c.Number.Contains(f.TrimStart('+'), StringComparison.Ordinal))).ToList()
@@ -363,37 +471,105 @@ public sealed partial class ArchiveLibrary
         {
             var title = sharedNames.Contains(chat.Name) && chat.Kind == "person" ? $"{chat.Name} (+{chat.Number})" : chat.Name;
             progress?.Invoke($"{title}: {chat.MessageCount:N0} messages");
+            _thumbSource = db.OpenFile;
             results.Add(ImportMessages(accountId, "whatsapp", "ios:" + chat.Jid, title,
                 db.ReadMessages(chat, self), db.OpenFile, db.Root, chat.Kind, liveKeys));
+            if (db.Group(chat) is { } group)
+                SaveGroup(results[^1].ChatId, group);
+            using (var conn = Connect())
+                Exec(conn, "UPDATE chats SET archived = $a WHERE id = $c", ("$a", chat.Archived ? 1 : 0), ("$c", results[^1].ChatId));
         }
-        SnapshotSource(account, db.Root);
+        using (var conn = Connect())
+        {
+            using var tx = conn.BeginTransaction();
+            foreach (var key in db.Blocked())
+                Exec(conn, "INSERT OR IGNORE INTO blocked (account_id, key) VALUES ($a, $k)", ("$a", accountId), ("$k", key));
+            foreach (var (group, type, utc, members) in db.GroupChanges())
+                Exec(conn, "INSERT OR IGNORE INTO group_changes (account_id, group_key, change_type, changed_utc, members) VALUES ($a, $g, $t, $u, $m)",
+                    ("$a", accountId), ("$g", group), ("$t", type), ("$u", Stamp(utc)), ("$m", (object?)members ?? DBNull.Value));
+            tx.Commit();
+        }
+        progress?.Invoke("People, profile pictures and calls");
+        SavePeople(accountId, db.People());
+        SaveCalls(accountId, db.Calls());
         return results;
     }
 
-    /// <summary>
-    /// Keeps the phone's own databases as they were read (ChatStorage.sqlite and
-    /// the other small .sqlite files beside it, not the media, which the store
-    /// holds), under <c>sources\whatsapp-ios\[account]\[date]</c>: what Vakage
-    /// read, kept whole, should a later version want more from it.
-    /// </summary>
-    private void SnapshotSource(Account account, string container)
+    private HashSet<string> ExcludedKeys(long accountId)
     {
-        var date = File.GetLastWriteTime(Path.Combine(container, "ChatStorage.sqlite")).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var target = Path.Combine(Root, "sources", "whatsapp-ios", SafeFolderName(account.Name), date);
-        if (Directory.Exists(target)) return;
-        var staging = target + ".incoming";
-        Directory.CreateDirectory(staging);
-        foreach (var file in Directory.GetFiles(container, "*.sqlite"))
-            File.Copy(file, Path.Combine(staging, Path.GetFileName(file)), overwrite: true);
-        Directory.Move(staging, target);
+        using var conn = Connect();
+        return Query(conn, "SELECT source_key FROM excluded_chats WHERE account_id = $a", r => r.GetString(0), ("$a", accountId))
+            .ToHashSet(StringComparer.Ordinal);
     }
 
-    private static string SafeFolderName(string name)
+    private void SaveGroup(long chatId, IosGroup group)
     {
-        var bad = Path.GetInvalidFileNameChars();
-        var clean = new string(name.Select(c => bad.Contains(c) ? '-' : c).ToArray()).Trim();
-        return clean.Length == 0 ? "account" : clean;
+        using var conn = Connect();
+        using var tx = conn.BeginTransaction();
+        Exec(conn, "UPDATE chats SET created_utc = $c, creator_key = $k WHERE id = $id",
+            ("$c", group.CreatedUtc is { } c ? Stamp(c) : DBNull.Value), ("$k", (object?)group.Creator ?? DBNull.Value), ("$id", chatId));
+        foreach (var m in group.Members)
+            Exec(conn, """
+                INSERT INTO chat_members (chat_id, member_key, name, admin, active) VALUES ($c, $k, $n, $a, $v)
+                ON CONFLICT (chat_id, member_key) DO UPDATE SET name = coalesce(excluded.name, name), admin = excluded.admin, active = excluded.active
+                """, ("$c", chatId), ("$k", m.Jid), ("$n", (object?)m.Name ?? DBNull.Value), ("$a", m.Admin ? 1 : 0), ("$v", m.Active ? 1 : 0));
+        tx.Commit();
     }
+
+    private void SavePeople(long accountId, IReadOnlyList<IosPerson> people)
+    {
+        using var conn = Connect();
+        using var tx = conn.BeginTransaction();
+        foreach (var p in people)
+        {
+            string? picture = null;
+            if (p.PictureSource is { } file && File.Exists(file))
+            {
+                using var stream = File.OpenRead(file);
+                picture = StoreSmall(stream, "people", ".jpg");
+            }
+            Exec(conn, """
+                INSERT INTO people (account_id, key, name, push_name, phone, phone_label, about, business, lid, username, picture)
+                VALUES ($a, $k, $n, $pn, $ph, $pl, $ab, $bu, $li, $us, $pi)
+                ON CONFLICT (account_id, key) DO UPDATE SET
+                  name = coalesce(excluded.name, name), push_name = coalesce(excluded.push_name, push_name), phone = coalesce(excluded.phone, phone),
+                  phone_label = coalesce(excluded.phone_label, phone_label), about = coalesce(excluded.about, about),
+                  business = coalesce(excluded.business, business), lid = coalesce(excluded.lid, lid), username = coalesce(excluded.username, username),
+                  picture = coalesce(excluded.picture, picture)
+                """,
+                ("$a", accountId), ("$k", p.Jid), ("$n", (object?)p.Name ?? DBNull.Value), ("$pn", (object?)p.PushName ?? DBNull.Value),
+                ("$ph", (object?)p.Phone ?? DBNull.Value), ("$pl", (object?)p.PhoneLabel ?? DBNull.Value), ("$ab", (object?)p.About ?? DBNull.Value),
+                ("$bu", (object?)p.Business ?? DBNull.Value), ("$li", (object?)p.Lid ?? DBNull.Value), ("$us", (object?)p.Username ?? DBNull.Value),
+                ("$pi", (object?)picture ?? DBNull.Value));
+        }
+        tx.Commit();
+    }
+
+    private void SaveCalls(long accountId, IReadOnlyList<IosCall> calls)
+    {
+        using var conn = Connect();
+        using var tx = conn.BeginTransaction();
+        foreach (var c in calls)
+            Exec(conn, """
+                INSERT OR IGNORE INTO calls (account_id, source_id, started_utc, seconds, video, incoming, missed, outcome, group_key, participants, creator_key)
+                VALUES ($a, $s, $t, $d, $v, $i, $m, $o, $g, $p, $c)
+                """,
+                ("$a", accountId), ("$s", c.Id), ("$t", Stamp(c.Utc)), ("$d", c.Seconds), ("$v", c.Video ? 1 : 0), ("$i", c.Incoming ? 1 : 0),
+                ("$m", c.Missed ? 1 : 0), ("$o", (object?)c.Outcome ?? DBNull.Value), ("$g", (object?)c.Group ?? DBNull.Value),
+                ("$p", (object?)c.Participants ?? DBNull.Value), ("$c", (object?)c.Creator ?? DBNull.Value));
+        tx.Commit();
+    }
+
+    public sealed record ArchivedCall(DateTime Started, double Seconds, bool Video, bool Incoming, bool Missed, string? Group, string? Participants);
+
+    public IReadOnlyList<ArchivedCall> Calls(long accountId)
+    {
+        using var conn = Connect();
+        return Query(conn, "SELECT started_utc, seconds, video, incoming, missed, group_key, participants FROM calls WHERE account_id = $a ORDER BY started_utc",
+            r => new ArchivedCall(ShownTime(r.GetString(0)), r.GetDouble(1), r.GetInt64(2) == 1, r.GetInt64(3) == 1, r.GetInt64(4) == 1,
+                r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6)), ("$a", accountId));
+    }
+
 
     /// <summary>
     /// WhatsApp re-keys chats now and then (phone numbers moving to @lid ids).
@@ -502,13 +678,13 @@ public sealed partial class ArchiveLibrary
         using var conn = Connect();
         return Query(conn, """
             SELECT c.id, c.account_id, c.source, c.title, c.thread_id, count(m.id),
-                   min(coalesce(m.sent_utc, m.sent_at)), max(coalesce(m.sent_utc, m.sent_at)), c.kind
+                   min(coalesce(m.sent_utc, m.sent_at)), max(coalesce(m.sent_utc, m.sent_at)), c.kind, c.noisy
             FROM chats c LEFT JOIN messages m ON m.chat_id = c.id
             WHERE c.account_id = $a GROUP BY c.id ORDER BY max(coalesce(m.sent_utc, m.sent_at)) DESC
             """,
             r => new Chat(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetInt64(4),
                 r.GetInt32(5), r.IsDBNull(6) ? null : Parse(r.GetString(6)), r.IsDBNull(7) ? null : Parse(r.GetString(7)),
-                r.IsDBNull(8) ? null : r.GetString(8)),
+                r.IsDBNull(8) ? null : r.GetString(8), r.GetInt64(9) == 1),
             ("$a", accountId));
     }
 
@@ -541,8 +717,10 @@ public sealed partial class ArchiveLibrary
         var ids = string.Join(",", chatIds.Select(i => i.ToString(CultureInfo.InvariantCulture)));
         return Query(conn, $"""
             SELECT m.id, m.chat_id, m.sent_at, m.sender, m.body, m.kind, m.attachment_name, m.file_id, f.sha256, f.ext, f.size,
-                   m.sent_utc, m.forwarded, f.reduced, f.thumb, f.text
+                   m.sent_utc, m.forwarded, f.reduced, f.thumb, f.text,
+                   m.starred, q.sender, q.body, q.attachment_name, m.link_title, m.link_url, m.thumb, m.vcard, m.forward_score
             FROM messages m LEFT JOIN files f ON f.id = m.file_id
+            LEFT JOIN messages q ON m.reply_to IS NOT NULL AND q.chat_id = m.chat_id AND q.source_id IN (m.reply_to || '|0', m.reply_to || '|1')
             WHERE m.chat_id IN ({ids}) ORDER BY coalesce(m.sent_utc, m.sent_at), m.chat_id, m.seq
             """,
             r => new StoredMessage(r.GetInt64(0), r.GetInt64(1),
@@ -555,7 +733,15 @@ public sealed partial class ArchiveLibrary
                 r.GetInt64(12) == 1,
                 r.IsDBNull(13) ? null : r.GetString(13),
                 r.IsDBNull(14) ? null : Path.Combine(Root, r.GetString(14)),
-                r.IsDBNull(15) ? null : r.GetString(15)));
+                r.IsDBNull(15) ? null : r.GetString(15),
+                r.GetInt64(16) == 1,
+                r.IsDBNull(17) ? null : r.GetString(17),
+                r.IsDBNull(18) ? null : (r.GetString(18).Length > 0 ? r.GetString(18) : r.IsDBNull(19) ? null : r.GetString(19)),
+                r.IsDBNull(20) ? null : r.GetString(20),
+                r.IsDBNull(21) ? null : r.GetString(21),
+                r.IsDBNull(22) ? null : Path.Combine(Root, r.GetString(22)),
+                r.IsDBNull(23) ? null : r.GetString(23),
+                r.IsDBNull(24) ? null : r.GetInt32(24)));
     }
 
     // ----- Managing -----
@@ -609,6 +795,11 @@ public sealed partial class ArchiveLibrary
         using (var tx = conn.BeginTransaction())
         {
             var threads = Query(conn, $"SELECT DISTINCT thread_id FROM chats WHERE id IN ({ids}) AND thread_id IS NOT NULL", r => r.GetInt64(0));
+            // A chat deleted on purpose stays deleted: a later import leaves it out.
+            Exec(conn, $"""
+                INSERT OR REPLACE INTO excluded_chats (account_id, source_key, title, excluded_at)
+                SELECT account_id, source_key, title, $n FROM chats WHERE id IN ({ids}) AND source_key IS NOT NULL
+                """, ("$n", Now()));
             Exec(conn, $"DELETE FROM chats WHERE id IN ({ids})");
             // A thread left with one chat is no longer a join.
             foreach (var t in threads)

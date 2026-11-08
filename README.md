@@ -10,13 +10,17 @@ Stone icon (`#57534d`, Tailwind stone-600). A Tekhnexos companion app, C# and Av
 - **Import** an exported chat: the `.zip` WhatsApp makes with *Export chat → Include media*, the folder it was unzipped into, or the chat's `.txt` alone. Android and iPhone exports, in English, Portuguese, Spanish, German, French, Italian and Dutch, 24-hour and AM/PM clocks. A later export of the same chat adds only the messages that are new.
 - **Import a whole phone** from an iPhone backup: WhatsApp's own database (`ChatStorage.sqlite` and its `Message\Media`), with every chat, exact times, documents under their real names and every file the phone downloaded. Contacts saved under one name stay apart, and a later backup adds only what is new. See *From an iPhone backup* below.
 - **Read** a conversation as a stream: your messages on the right, everyone else's on the left, photos shown inline, every other file one click away.
-- **Join** chats into one conversation: a contact's old number and new number, read as one continuous stream as it never was in WhatsApp. Unjoin parts them again. Chats of different accounts are never joined.
+- **The same person under several numbers.** Chats of one person (an old number and a new one) are tied together without being merged: the person shows once in the list, and each chat history can be read alone, or all of them together as one continuous stream, as it never was in WhatsApp. Separate unties them. Chats of different accounts are never tied.
 - **Files**: every file in an account, largest first, filtered by who sent it (or by everyone but that person).
 - **One copy of each file.** Files are stored by their content, so the same photo sent to three people, or forwarded back to you, or exported from both your phone and your partner's, is stored once and every chat points at it.
 - **Delete** conversations; a file goes with them only when no other chat still uses it, and never when it is marked important.
 - **Important or irrelevant.** Every file stands on one of three lists: important (the precious things, kept whole), irrelevant (the noise), or unsorted. Vakage suggests a standing, with its reason: stickers, GIFs, forwarded pictures and anything sent around several chats look irrelevant; your own photos, and the photos and voice notes of close one-to-one chats, look important; screenshots are left for you. Your own mark always wins, and the Files tab shows each list, with a preview of every picture.
 - **Reduce the noise.** An irrelevant picture that is mostly words is kept as its words; any other is kept as a small thumbnail; an irrelevant PDF is kept as its text; the original is deleted, and where it was in the chat a notice says so. Reading text needs Eidokanon (a Tekhnexos companion) on the computer; without it, pictures keep a thumbnail and PDFs stay whole.
-- **Made to be continued.** A later backup of the same phone joins on as if the archive had never been cut off: messages are matched by WhatsApp's own ids, times are kept in UTC, and a contact renamed, a chat moved to WhatsApp's new ids, or a computer in another time zone adds nothing twice. Each import also keeps the phone's own databases, untouched, beside the archive.
+- **Everything the phone knew.** Besides the messages and files: what each message replies to (shown above it), stars, link previews, contact cards, the length of voice notes and videos, the preview of a file the phone never downloaded, the address book and the names people gave themselves, profile pictures, call history, groups' members and creators, blocked contacts, and WhatsApp's raw per-message metadata and receipts, kept whole for anything a later version learns to read. Nothing of WhatsApp's own needs to be kept once a phone is imported.
+- **Documents.** Vakage reads the words of every picture and PDF (through Eidokanon) and tells documents apart by them: payment receipts, bills, tickets, identity papers, contracts, medical and school papers. Old receipts and tickets are suggested irrelevant (their text is enough), identity, legal and medical papers important. The Files tab has a Documents list.
+- **Noisy chats.** A chat of a relative's daily forwards can be marked noisy: its pictures are pruned hard, keeping what looks like a real photo (a camera's shape, no words) and voice notes.
+- **Deleting is for good.** A chat deleted in Vakage stays out of later imports; channels (broadcast feeds) are left out of imports.
+- **Made to be continued.** A later backup of the same phone joins on as if the archive had never been cut off: messages are matched by WhatsApp's own ids, times are kept in UTC, and a contact renamed, a chat moved to WhatsApp's new ids, or a computer in another time zone adds nothing twice. Nothing of WhatsApp's own is kept: everything is in Vakage's archive.
 
 ## Coming
 
@@ -51,8 +55,8 @@ The library is a folder (by default `Documents\Vakage`; set `LibraryPath` in `%L
 Vakage\
   vakage.sqlite                         accounts, chats, messages, files and their standing (one file, no journal beside it)
   files\ab\<sha256>.jpg                 each file once, named by its content
-  thumbs\ab\<sha256>.jpg                the thumbnail kept for a reduced file
-  sources\whatsapp-ios\<account>\<date>  the phone's own WhatsApp databases, as each import read them
+  thumbs\ab\<sha256>.jpg                thumbnails: of reduced files, and previews of files never downloaded
+  people\ab\<sha256>.jpg                profile pictures
 ```
 
 Files are never rewritten once stored, so the folder syncs and backs up well.
@@ -68,6 +72,10 @@ Vakage --files --account Tiago [--list important|irrelevant|unsorted] [--sender 
 Vakage --suggest                                   # work out the suggested standings again
 Vakage --mark important|irrelevant|none --file 12,13
 Vakage --reduce --account Tiago [--file 12,13] --yes   # keep text or a thumbnail, DELETE the originals
+Vakage --read-text --account Tiago [--chat 6] [--jobs 6] # read the words in pictures and PDFs (Eidokanon)
+Vakage --noisy 6 [--off]                           # a chat of daily forwards
+Vakage --group-same-names --account Tiago          # tie together one person's chats under different numbers
+Vakage --delete 699,700 --yes                      # delete chats for good; later imports leave them out
 ```
 
 Every command takes `--library <folder>` to work on another library.

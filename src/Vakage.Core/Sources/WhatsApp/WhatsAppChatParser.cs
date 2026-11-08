@@ -39,7 +39,27 @@ public sealed record ParsedMessage(
     DateTime? SentUtc = null,
     string? SenderKey = null,
     bool Forwarded = false,
-    string? MediaType = null);
+    string? MediaType = null,
+    MessageExtras? Extras = null);
+
+/// <summary>What a phone's database knows about a message beyond its text and file.</summary>
+public sealed record MessageExtras(
+    string? ReplyTo = null,
+    string? ReplySender = null,
+    bool Starred = false,
+    int? ForwardScore = null,
+    string? LinkUrl = null,
+    string? LinkTitle = null,
+    string? LinkSnippet = null,
+    string? VCard = null,
+    string? Mime = null,
+    string? ThumbSource = null,
+    string? OriginalSender = null,
+    string? Mentions = null,
+    byte[]? RawMetadata = null,
+    byte[]? RawReceipts = null,
+    double? Duration = null,
+    long? MediaSize = null);
 
 public static class MediaTypes
 {

@@ -9,6 +9,29 @@ public enum FileList
     Important,
     Irrelevant,
     Unsorted,
+    /// <summary>PDFs and other documents, and pictures whose text reads as a document.</summary>
+    Documents,
+}
+
+/// <summary>What the messages and the file itself say about a file: what the suggestion rules weigh.</summary>
+public sealed record FileFacts(
+    string Media,
+    int Chats = 1,
+    bool Channel = false,
+    bool Forwarded = false,
+    bool OwnFromMe = false,
+    bool AllPerson = false,
+    bool CloseChat = false,
+    double Shape = 0,
+    int LongSide = 0,
+    bool NoisyFromOthers = false,
+    int? OcrWords = null,
+    string? DocKind = null,
+    double AgeYears = 0,
+    int ForwardScore = 0)
+{
+    /// <summary>The proportions a phone camera takes (4:3, 16:9) at a camera's size, not a meme's.</summary>
+    public bool CameraLike => Media == "image" && LongSide >= 1000 && (Shape is >= 1.30 and <= 1.36 || Shape is >= 1.74 and <= 1.80);
 }
 
 public sealed record SuggestionResult(int Important, int Irrelevant, int Unsorted);
@@ -81,6 +104,7 @@ public sealed partial class ArchiveLibrary
             : "AND f.id IN (SELECT m2.file_id FROM messages m2 JOIN chats c2 ON c2.id = m2.chat_id WHERE c2.account_id = $a AND m2.sender = $s AND m2.file_id IS NOT NULL)";
         filter += list switch
         {
+            FileList.Documents => " AND (f.doc_kind IS NOT NULL AND f.doc_kind <> 'text' OR f.ext IN ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.txt', '.rtf'))",
             FileList.Important => " AND coalesce(f.mark, f.suggestion) = 'important'",
             FileList.Irrelevant => " AND coalesce(f.mark, f.suggestion) = 'irrelevant'",
             FileList.Unsorted => " AND coalesce(f.mark, f.suggestion) IS NULL",
@@ -136,21 +160,38 @@ public sealed partial class ArchiveLibrary
                    max(m.sender_key = 'me' AND m.forwarded = 0),
                    min(ifnull(c.kind, 'person') = 'person'),
                    max(ifnull(c.kind, 'person') = 'person' AND s.n >= {CloseChatMessages}),
-                   f.width, f.height
+                   f.width, f.height,
+                   max(c.noisy = 1 AND ifnull(m.sender_key, '') <> 'me'), f.ocr_words, f.doc_kind,
+                   min(coalesce(m.sent_utc, m.sent_at)), max(ifnull(m.forward_score, 0))
             FROM files f JOIN messages m ON m.file_id = f.id JOIN chats c ON c.id = m.chat_id JOIN sizes s ON s.chat_id = m.chat_id
             GROUP BY f.id
             """,
-            r => (Id: r.GetInt64(0), Media: r.GetString(1), Chats: r.GetInt32(2), Channel: r.GetInt64(3) == 1,
-                AnyForwarded: r.GetInt64(4) == 1, AllForwarded: r.GetInt64(5) == 1, OwnFromMe: !r.IsDBNull(6) && r.GetInt64(6) == 1,
-                AllPerson: r.GetInt64(7) == 1, CloseChat: r.GetInt64(8) == 1,
-                Shape: r.IsDBNull(9) || r.IsDBNull(10) || r.GetInt64(9) == 0 || r.GetInt64(10) == 0
-                    ? 0.0 : (double)Math.Max(r.GetInt64(9), r.GetInt64(10)) / Math.Min(r.GetInt64(9), r.GetInt64(10))));
+            r =>
+            {
+                long w = r.IsDBNull(9) ? 0 : r.GetInt64(9), h = r.IsDBNull(10) ? 0 : r.GetInt64(10);
+                var first = DateTime.ParseExact(r.GetString(14), "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
+                return (Id: r.GetInt64(0), Facts: new FileFacts(
+                    Media: r.GetString(1),
+                    Chats: r.GetInt32(2),
+                    Channel: r.GetInt64(3) == 1,
+                    Forwarded: r.GetInt64(5) == 1,
+                    OwnFromMe: !r.IsDBNull(6) && r.GetInt64(6) == 1,
+                    AllPerson: r.GetInt64(7) == 1,
+                    CloseChat: r.GetInt64(8) == 1,
+                    Shape: w == 0 || h == 0 ? 0 : (double)Math.Max(w, h) / Math.Min(w, h),
+                    LongSide: (int)Math.Max(w, h),
+                    NoisyFromOthers: !r.IsDBNull(11) && r.GetInt64(11) == 1,
+                    OcrWords: r.IsDBNull(12) ? null : r.GetInt32(12),
+                    DocKind: r.IsDBNull(13) ? null : r.GetString(13),
+                    AgeYears: (DateTime.UtcNow - first).TotalDays / 365.25,
+                    ForwardScore: r.GetInt32(15)));
+            });
 
         int important = 0, irrelevant = 0, unsorted = 0;
         using var tx = conn.BeginTransaction();
         foreach (var f in rows)
         {
-            var (standing, reason) = SuggestFor(f.Media, f.Chats, f.Channel, f.AllForwarded, f.OwnFromMe, f.AllPerson, f.CloseChat, f.Shape);
+            var (standing, reason) = SuggestFor(f.Facts);
             Exec(conn, "UPDATE files SET suggestion = $s, suggestion_reason = $r WHERE id = $f",
                 ("$s", (object?)standing ?? DBNull.Value), ("$r", (object?)reason ?? DBNull.Value), ("$f", f.Id));
             if (standing == Important) important++;
@@ -161,26 +202,143 @@ public sealed partial class ArchiveLibrary
         return new SuggestionResult(important, irrelevant, unsorted);
     }
 
-    /// <summary>The rules, in order; the first that applies decides. Explainable on purpose.</summary>
+    /// <summary>A shorthand for tests and callers with only a few facts.</summary>
     internal static (string? Standing, string? Reason) SuggestFor(string media, int chats, bool channel, bool forwarded,
         bool ownFromMe, bool allPerson, bool closeChat, double shape = 0)
+        => SuggestFor(new FileFacts(media, chats, channel, forwarded, ownFromMe, allPerson, closeChat, shape));
+
+    /// <summary>The rules, in order; the first that applies decides. Explainable on purpose.</summary>
+    public static (string? Standing, string? Reason) SuggestFor(FileFacts f)
     {
-        var visual = media is "image" or "video";
-        if (media == "sticker") return (Irrelevant, "a sticker");
-        if (media == "gif") return (Irrelevant, "a GIF");
-        if (channel) return (Irrelevant, "from a channel");
-        if ((visual || media == "audio") && forwarded) return (Irrelevant, "forwarded: someone else's, passed along");
-        if (visual && chats >= 3) return (Irrelevant, $"sent around {chats} chats");
+        var visual = f.Media is "image" or "video";
+        if (f.Media == "sticker") return (Irrelevant, "a sticker");
+        if (f.Media == "gif") return (Irrelevant, "a GIF");
+        if (f.Channel) return (Irrelevant, "from a channel");
+        if ((visual || f.Media == "audio") && f.Forwarded)
+            return (Irrelevant, f.ForwardScore >= 5 ? "forwarded many times" : "forwarded: someone else's, passed along");
+
+        // Documents, from the words read in them (a PDF, or a photo of a paper).
+        if (f.DocKind is { } kind && kind != Documents.Text && (f.Media == "document" || f.Media == "image"))
+        {
+            var what = Documents.Describe(kind);
+            var year = DateTime.UtcNow.AddDays(-f.AgeYears * 365.25).Year;
+            switch (kind)
+            {
+                case Documents.Receipt or Documents.Bill when f.AgeYears >= 1:
+                    return (Irrelevant, $"{what} from {year}: its text is enough");
+                case Documents.Ticket when f.AgeYears >= 1:
+                    return (Irrelevant, $"{what} from {year}: its text is enough");
+                case Documents.Receipt or Documents.Bill or Documents.Ticket:
+                    return (null, $"{what}, still recent");
+                default:
+                    return (Important, what);
+            }
+        }
+        if (f.Media == "image" && f.OcrWords >= TextPictureWords && f.NoisyFromOthers)
+            return (Irrelevant, "a picture of words, in a noisy chat");
+
+        if (visual && f.Chats >= 3) return (Irrelevant, $"sent around {f.Chats} chats");
+
+        // A noisy chat (a relative's daily forwards): pruned hard, but a real
+        // photo, of the camera's shape and without words, may be the family's.
+        if (f.NoisyFromOthers)
+        {
+            if (f.Media == "audio") return (Important, "a voice note");
+            if (f.Media == "video") return (null, "a video in a noisy chat: worth a look");
+            if (f.Media == "image")
+                return f.CameraLike && (f.OcrWords ?? 0) < 5
+                    ? (Important, "looks like a camera photo, in a noisy chat")
+                    : (Irrelevant, f.OcrWords > 0 ? "a picture with words, in a noisy chat" : "everyday noise, in a noisy chat");
+        }
+
         // A camera takes 4:3 or 16:9; a phone's screen is about 9:19.5. A
         // screenshot is rarely precious and rarely junk: left for the person.
-        if (media == "image" && shape >= ScreenshotShape) return (null, "shaped like a screenshot");
-        if (visual && ownFromMe) return (Important, media == "video" ? "a video of your own" : "a photo of your own");
-        if (allPerson && closeChat)
+        if (f.Media == "image" && f.Shape >= ScreenshotShape) return (null, "shaped like a screenshot");
+        if (f.Media == "image" && f.OcrWords >= TextPictureWords) return (null, "a picture of words");
+        if (visual && f.OwnFromMe) return (Important, f.Media == "video" ? "a video of your own" : "a photo of your own");
+        if (f.AllPerson && f.CloseChat)
         {
-            if (media == "audio") return (Important, "a voice note in a close one-to-one chat");
-            if (visual) return (Important, media == "video" ? "a video sent in a close one-to-one chat" : "a photo sent in a close one-to-one chat");
+            if (f.Media == "audio") return (Important, "a voice note in a close one-to-one chat");
+            if (visual) return (Important, f.Media == "video" ? "a video sent in a close one-to-one chat" : "a photo sent in a close one-to-one chat");
         }
+        if (f.Media == "document") return (null, "a document");
         return (null, null);
+    }
+
+    /// <summary>Marks chats as noisy (a relative's daily forwards): their files are pruned hard.</summary>
+    public void SetNoisy(IReadOnlyList<long> chatIds, bool noisy)
+    {
+        using var conn = Connect();
+        foreach (var id in chatIds)
+            Exec(conn, "UPDATE chats SET noisy = $n WHERE id = $c", ("$n", noisy ? 1 : 0), ("$c", id));
+    }
+
+    /// <summary>
+    /// Reads the words in the account's pictures and PDFs that have not been
+    /// read yet, several at a time, and keeps them with each file with the kind
+    /// of document they make. Nothing is deleted. Returns how many were read.
+    /// </summary>
+    public int ReadTexts(long accountId, IReadOnlyList<long>? chatIds, ITextReader reader, int jobs = 6, Action<string>? progress = null,
+        CancellationToken cancel = default)
+    {
+        if (reader.Unavailable is { } why) throw new InvalidOperationException(why);
+        List<(long Id, string Path)> pending;
+        using (var conn = Connect())
+        {
+            var chatFilter = chatIds is { Count: > 0 } ? $"AND m.chat_id IN ({string.Join(",", chatIds)})" : "";
+            pending = Query(conn, $"""
+                SELECT DISTINCT f.id, f.sha256, f.ext FROM files f JOIN messages m ON m.file_id = f.id JOIN chats c ON c.id = m.chat_id
+                WHERE c.account_id = $a {chatFilter} AND f.ocr IS NULL AND f.reduced IS NULL
+                  AND (f.ext = '.pdf' OR (f.ext IN ('.jpg', '.jpeg', '.png') AND ifnull(m.media_type, 'image') = 'image'))
+                """, r => (r.GetInt64(0), StorePath(r.GetString(1), r.GetString(2))), ("$a", accountId));
+        }
+        var results = new System.Collections.Concurrent.ConcurrentQueue<(long Id, string Text)>();
+        var done = 0;
+        void Flush()
+        {
+            if (results.IsEmpty) return;
+            using var conn = Connect();
+            using var tx = conn.BeginTransaction();
+            while (results.TryDequeue(out var r))
+                Exec(conn, "UPDATE files SET ocr = $t, ocr_words = $w, doc_kind = $k WHERE id = $f",
+                    ("$t", r.Text), ("$w", Thumbnails.Words(r.Text)), ("$k", (object?)Documents.Classify(r.Text) ?? DBNull.Value), ("$f", r.Id));
+            tx.Commit();
+        }
+        Parallel.ForEach(pending, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, jobs), CancellationToken = cancel }, p =>
+        {
+            if (!File.Exists(p.Path)) return;
+            var text = reader.Read(p.Path);
+            if (text is null) return; // unreadable now: tried again next time
+            results.Enqueue((p.Id, text));
+            var n = Interlocked.Increment(ref done);
+            if (n % 100 == 0)
+            {
+                lock (results) Flush();
+                progress?.Invoke($"{n:N0}/{pending.Count:N0} read");
+            }
+        });
+        lock (results) Flush();
+        return done;
+    }
+
+    /// <summary>
+    /// Ties together the account's one-to-one chats saved under one name with
+    /// different numbers ("Ana (+5511…)", "Ana (+24499…)"): the same person,
+    /// each history kept apart, readable alone or all together. A chat already
+    /// tied to others brings its group along. Returns the groups made or grown.
+    /// </summary>
+    public int GroupSameNames(long accountId)
+    {
+        var chats = Chats(accountId).Where(c => (c.Kind ?? "person") == "person").ToList();
+        var groups = 0;
+        foreach (var family in chats.Where(c => c.Title.Contains(" (+")).GroupBy(c => c.Title[..c.Title.IndexOf(" (+", StringComparison.Ordinal)]))
+        {
+            var members = family.ToList();
+            if (members.Count < 2 || members.Select(m => m.ThreadId).Distinct().Count() == 1 && members[0].ThreadId is not null) continue;
+            Join(members.Select(m => m.Id).ToList(), family.Key);
+            groups++;
+        }
+        return groups;
     }
 
     /// <summary>
@@ -243,6 +401,7 @@ public sealed partial class ArchiveLibrary
             else if (ext == ".pdf")
             {
                 var words = canRead ? reader!.Read(f.Path) : null;
+                words = string.IsNullOrWhiteSpace(words) ? null : words;
                 if (words is not null && words.Count(char.IsLetter) >= 80)
                 {
                     reduced = "text";

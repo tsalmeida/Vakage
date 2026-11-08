@@ -56,6 +56,18 @@ Imports copy, never move: the export is left as it was, to be deleted by its own
 - **The archive is `L:\Library\Chat-Archives`.** Everything WhatsApp holds goes there, so Tiago can delete it from the phone himself; Vakage never touches the phone. A backup a year later must join on as if it had never been cut off.
 - **Precious and noise.** Junk (holiday greetings and the like) keeps only a tiny thumbnail; an image that is only text keeps its text (read by Eidokanon) and goes; where it was, a notice says what was kept. A PDF is turned into text the same way. The precious things (his father's photos of the farm, photos of his family) are kept whole, once, even when they appear in several chats. The Files tab shows the important files and the irrelevant files, and a file moves from one list to the other by marking it.
 
+## Decisions (Tiago, 2026-11-08, third session)
+
+- **Channels are noise**: the three followed were deleted, and channels are left out of imports. A chat deleted in Vakage stays deleted.
+- **No untouched copy of WhatsApp.** The archive is the one copy; every bit of information the phone held must be in Vakage's own form. The snapshot of WhatsApp's databases and the decrypted backup were deleted once that was verified.
+- **Noisy chats** (a grandmother's daily forwards) are pruned radically, with an eye for the real family photos among them.
+- **Documents** (PDFs, photos of papers, many in the chat with his wife) are understood by their text; most old receipts no longer matter and will become Markdown text, the original deleted.
+- **The same person under several numbers** is neither joined nor apart: the person shows once, with each chat history readable alone, or all together.
+
+## Everything the phone knew
+
+Kept with each message besides text and file: `reply_to`/`reply_sender` (the quoted message, from WhatsApp's metadata: an NSKeyedArchiver plist on older messages, a protocol buffer with the id in field 5 and the sender in field 6 on newer ones), `starred`, `forward_score`, `link_url/title/snippet`, `vcard`, `mime`, `thumb` (the preview of a file never downloaded, or a link's picture), `duration`, `media_size`, `original_sender`, `mentions`, and `raw_meta`/`raw_receipts`, the blobs themselves (37 + 7 MB), so reactions, read receipts and polls can be read later. Tables: `people` (address book name, number and label, about, business name, the name they gave themselves, profile picture under `people\`), `calls` (time, length, voice/video, in/out, missed, group, participants), `chat_members`, `chats.created_utc/creator_key/archived`, `blocked`, `group_changes`, `excluded_chats`. Left behind as app state: WhatsApp's settings, sticker-pack catalogues, business labels.
+
 ## Continuity: a later backup joins on
 
 What makes the archive one thing however many backups feed it:
@@ -63,16 +75,23 @@ What makes the archive one thing however many backups feed it:
 - Every message keeps WhatsApp's own id (`messages.source_id`, the stanza id with the direction) and its exact time in UTC (`sent_utc`), shown in whatever zone the computer is in. A later import skips the ids it has.
 - Every chat keeps WhatsApp's id (`chats.source_key` = `ios:<JID>`); its title follows the phone's current name. When WhatsApp re-keys a chat (numbers moving to `@lid` ids), the chat whose old id is gone from the phone and which already holds nearly all (80 %) of the sampled messages is the same chat, and takes the new key. Message ids alone are not enough: a broadcast carries one id into several chats (two channels were merged that way on the first run and split again).
 - Who wrote is kept by id too (`sender_key`: `me`, or a WhatsApp id), whatever name they are saved under.
-- The phone's databases are kept as read (`sources\whatsapp-ios\<account>\<date>`), for anything a later Vakage wants from them.
 - The library is a single SQLite file with a rollback journal (no WAL side files), and stored files are never rewritten, because `L:` is synced to the Suitcase.
 
 ## Sorting the files
 
 `files.mark` is the person's decision (`important`, `irrelevant`); `files.suggestion` and `suggestion_reason` are Vakage's, recomputed after every import (`Suggest`), never overriding a mark. Rules, first match wins: sticker, GIF, channel, forwarded (WhatsApp's flag `0x100` on the message) and sent around 3+ chats are irrelevant; a picture shaped like a screenshot (long side 1.9 times the short, read from the header into `files.width/height`) is left unsorted; a photo or video Tiago sent himself, not forwarded, is important; a photo, video or voice note in a one-to-one chat of 100+ messages is important (those chats are his family and close friends). `Reduce` lets irrelevant files go: a picture with 20+ words keeps its words, any other a 240-pixel JPEG thumbnail (`thumbs\`), a video a thumbnail of its first second (ffmpeg), a PDF its text, audio a notice; the original is deleted. A file marked important is never reduced and never deleted with its chat, and one that was reduced and later marked important comes back whole if an import brings the original again. Text comes from `Eidokanon --extract <file> --stdout` (pictures by Tesseract, `--lang por+eng`; PDFs with `--raw`).
 
+## Reading documents and noisy chats
+
+`ReadTexts` runs `Eidokanon --extract <file> --lang por+eng --stdout` on every picture and PDF not read yet, six at a time, keeping `files.ocr`, `ocr_words` and `doc_kind` (`Documents.Classify`: receipt, bill, ticket, identity, legal, medical, school, or text, from accent-free keywords in Portuguese and English). The rules then: an old (1 year+) receipt, bill or ticket is irrelevant ("its text is enough"); a recent one unsorted; identity, legal, medical and school papers important; a picture of 20+ words unsorted, or irrelevant in a noisy chat. In a noisy chat (`chats.noisy`), from the other side: voice notes important, videos unsorted, a picture of a camera's shape (4:3 or 16:9, long side 1000+) with under 5 words important ("looks like a camera photo"), any other picture irrelevant. Forwarding score 5+ reads "forwarded many times".
+
+## Same person
+
+`threads` tie one person's chats; the list shows the person once, the conversation header a button for all histories together and one per history. `GroupSameNames` ties one-to-one chats whose titles share a name with different numbers.
+
 ## Where it stands (2026-11-08)
 
-Tiago's whole iPhone WhatsApp (backup of 2026-11-08) is archived in `L:\Library\Chat-Archives`: 700 chats, 309,981 messages, 29,374 files (11.5 GB), checked chat by chat against the phone's database; 919 media files were never downloaded by the phone. His wife's three numbers and a friend's three are joined. Suggestions: about 19,200 files important, 5,400 irrelevant, 4,800 unsorted; nothing reduced yet.
+Tiago's whole iPhone WhatsApp (backup of 2026-11-08) is archived in `L:\Library\Chat-Archives`: 697 chats (the three channels deleted), 305,689 messages, 29,374 files (11.5 GB), checked chat by chat against the phone's database, with everything else the phone knew; WhatsApp's own copies are deleted. Twelve people with several numbers are tied together; one chat is marked noisy. Pictures and PDFs are being read for their words; nothing reduced yet.
 
 Version 0.1: accounts, import of exports (window and `--import`) and of an iPhone's WhatsApp database (window and `--import-ios`), the conversation stream with photos inline, join and unjoin, the files list by size with the sender filter, delete with file clean-up, 14 tests. Installed in `C:\TKHN\Vakage`, in Nauarchos.
 

@@ -63,7 +63,7 @@
 
           <Border Classes="section" Grid.Column="2" Padding="0">
             <DockPanel>
-              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="16,16,16,8">
+              <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="16,16,16,4">
                 <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                   <TextBlock Classes="heading" x:Name="ChatTitle" TextWrapping="Wrap" />
                   <TextBlock Classes="caption" x:Name="ChatCaption" TextWrapping="Wrap" />
@@ -71,21 +71,31 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                   <TextBlock Classes="caption" Text="You are" VerticalAlignment="Center" />
                   <ComboBox x:Name="SelfBox" MinWidth="160" VerticalAlignment="Center" SelectionChanged="OnSelfChanged"
-                            ToolTip.Tip="Your name as this account's exports write it; your messages sit on the right" />
+                            ToolTip.Tip="Your name as this account's chats write it; your messages sit on the right" />
+                </StackPanel>
+              </Grid>
+              <DockPanel DockPanel.Dock="Top" Margin="16,0,16,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="8,4,0,4">
                   <Button Classes="pill blue" x:Name="JoinButton" Click="OnJoinClick" IsEnabled="False"
-                          ToolTip.Tip="Read the selected chats as one conversation (Ctrl+click to select several)">
-                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Link}" Text="Join" Hue="blue" />
+                          ToolTip.Tip="These chats are one person (Ctrl+click to select several): each history stays apart, and can be read alone or all together">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Link}" Text="Same person" Hue="blue" />
                   </Button>
                   <Button Classes="pill blue" x:Name="UnjoinButton" Click="OnUnjoinClick" IsEnabled="False"
-                          ToolTip.Tip="Part a joined conversation into its chats again">
-                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.LinkSlash}" Text="Unjoin" Hue="blue" />
+                          ToolTip.Tip="Not the same person: list these chats apart again">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.LinkSlash}" Text="Separate" Hue="blue" />
+                  </Button>
+                  <Button Classes="pill orange" x:Name="NoisyButton" Click="OnNoisyClick" IsEnabled="False"
+                          ToolTip.Tip="A chat of daily forwards: its pictures are pruned hard, keeping what looks like real photos and voice notes">
+                    <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.VolumeHigh}" Text="Noisy" Hue="orange" />
                   </Button>
                   <Button Classes="pill orange" x:Name="DeleteButton" Click="OnDeleteClick" IsEnabled="False"
-                          ToolTip.Tip="Delete the selected conversations and the files nothing else uses">
+                          ToolTip.Tip="Delete the selected conversations for good (later imports leave them out), and the files nothing else uses">
                     <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.TrashCan}" Text="Delete" Hue="orange" />
                   </Button>
                 </StackPanel>
-              </Grid>
+                <!-- One person's chat histories: all together, or each alone. -->
+                <WrapPanel x:Name="HistoryBar" Orientation="Horizontal" VerticalAlignment="Top" />
+              </DockPanel>
               <ListBox x:Name="MessageList" Margin="8,0,8,8" SelectionMode="Single" />
             </DockPanel>
           </Border>
@@ -108,6 +118,10 @@
                 <Button Classes="pill orange" x:Name="IrrelevantTab" Click="OnFileListClick" Tag="Irrelevant"
                         ToolTip.Tip="Show the irrelevant files: noise to reduce to a thumbnail or its text">
                   <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Ban}" Text="Irrelevant" Hue="orange" />
+                </Button>
+                <Button Classes="pill amber" x:Name="DocumentsTab" Click="OnFileListClick" Tag="Documents"
+                        ToolTip.Tip="Show the documents: PDFs, and pictures whose words read as a receipt, a ticket, an ID, a contract…">
+                  <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.FileLines}" Text="Documents" Hue="amber" />
                 </Button>
                 <Button Classes="pill amber" x:Name="UnsortedTab" Click="OnFileListClick" Tag="Unsorted"
                         ToolTip.Tip="Show the files on neither list yet">

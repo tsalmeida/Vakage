@@ -46,7 +46,6 @@ public sealed class EidokanonTextReader(string languages = "por+eng") : ITextRea
     public string? Read(string path)
     {
         if (_exe is null) return null;
-        var isPdf = Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
         var start = new ProcessStartInfo(_exe)
         {
             RedirectStandardOutput = true,
@@ -57,7 +56,8 @@ public sealed class EidokanonTextReader(string languages = "por+eng") : ITextRea
         };
         start.ArgumentList.Add("--extract");
         start.ArgumentList.Add(path);
-        if (isPdf) start.ArgumentList.Add("--raw");
+        // A PDF comes back as Markdown (Eidokanon's document reading), which is
+        // what is kept when the PDF itself is let go.
         start.ArgumentList.Add("--lang");
         start.ArgumentList.Add(languages);
         start.ArgumentList.Add("--stdout");
