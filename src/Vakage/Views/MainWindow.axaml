@@ -75,7 +75,7 @@
                 </StackPanel>
               </Grid>
               <DockPanel DockPanel.Dock="Top" Margin="16,0,16,8">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="8,4,0,4">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="8,0,0,0">
                   <Button Classes="pill blue" x:Name="JoinButton" Click="OnJoinClick" IsEnabled="False"
                           ToolTip.Tip="These chats are one person (Ctrl+click to select several): each history stays apart, and can be read alone or all together">
                     <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.Link}" Text="Same person" Hue="blue" />
@@ -93,9 +93,10 @@
                     <design:ActionIconLabel Glyph="{x:Static design:ActionIcons.TrashCan}" Text="Delete" Hue="orange" />
                   </Button>
                 </StackPanel>
-                <!-- One person's chat histories: all together, or each alone. -->
-                <WrapPanel x:Name="HistoryBar" Orientation="Horizontal" VerticalAlignment="Top" />
+                <Panel />
               </DockPanel>
+              <!-- One person's chat histories: all together, or each alone. -->
+              <WrapPanel x:Name="HistoryBar" DockPanel.Dock="Top" Orientation="Horizontal" Margin="16,0,16,8" />
               <ListBox x:Name="MessageList" Margin="8,0,8,8" SelectionMode="Single" />
             </DockPanel>
           </Border>

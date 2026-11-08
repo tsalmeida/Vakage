@@ -228,7 +228,7 @@ public partial class MainWindow : Window
             ? "Start with a new account (the person button beside Account), one per person whose phone the exports come from. Then import its exported chats."
             : conversations.Count == 0
                 ? $"No chats in {_account.Name} yet. Export a chat on the phone (Export chat, Include media) and import the zip."
-                : $"{conversations.Count} in {_account.Name}. Ctrl+click to select several, to join or delete them.";
+                : $"{conversations.Count} in {_account.Name}. Ctrl+click to select several: the same person, or to delete.";
         if (conversations.Count > 0) ConversationList.SelectedIndex = 0;
         else ShowSelectedConversation();
     }
@@ -279,7 +279,11 @@ public partial class MainWindow : Window
         {
             HistoryBar.Children.Add(HistoryChip("All together", $"{c.MessageCount:N0}", null));
             foreach (var chat in chats.OrderBy(x => x.First))
-                HistoryChip(chat.Title, $"{chat.MessageCount:N0} · {chat.First:yyyy}–{chat.Last:yyyy}", chat.Id);
+            {
+                // The person's name is the title already; a history is told by its number.
+                var label = chat.Title.StartsWith(c.Title + " (", StringComparison.Ordinal) ? chat.Title[(c.Title.Length + 2)..].TrimEnd(')') : chat.Title;
+                HistoryChip(label, $"{chat.MessageCount:N0} messages, {chat.First:yyyy}–{chat.Last:yyyy}", chat.Id);
+            }
         }
 
         var rows = new List<object>(messages.Count + 64);
